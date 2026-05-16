@@ -1,0 +1,26 @@
+# Logs
+logs
+*.log
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+
+# Dependencies and build output
+node_modules
+dist
+dist-ssr
+src-tauri/target
+src-tauri/gen
+*.tsbuildinfo
+
+# Local state
+.DS_Store
+*.local
+.env
+.env.*
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.sw?
