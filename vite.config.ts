@@ -17,6 +17,6 @@ export default defineConfig({
     target: ['es2022', 'chrome110', 'safari16'],
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
-    chunkSizeWarningLimit: 1600,
+    chunkSizeWarningLimit: 2200,
   },
 });

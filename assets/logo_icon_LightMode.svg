@@ -9,8 +9,9 @@
       <circle cx="191.86" cy="73.20" r="5" fill="white"/>
     </mask>
   </defs>
-  <g id="logo_icon">
+  <rect class="app-icon-bg" x="34" y="34" width="332" height="332" rx="82" fill="#f3efe7"/>
+  <g id="logo_icon" transform="translate(30 22) scale(0.84)">
     <circle cx="185" cy="188" r="120" fill="#111827" mask="url(#moon_mask)"/>
-    <rect x="143.0" y="336" width="84" height="10" rx="5.0" fill="#1d4ed8"/>
+    <rect x="143.0" y="336" width="84" height="10" rx="5.0" fill="#365f53"/>
   </g>
 </svg>

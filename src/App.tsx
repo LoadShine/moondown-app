@@ -1,450 +1,688 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { AIStreamHandler } from 'moondown';
+import { ChevronDown, ChevronRight, FileText, Folder, X } from 'lucide-react';
+import MoondownEditor, { type MoondownEditorHandle } from './components/MoondownEditor';
 import {
-  BookOpen,
-  Clock,
-  Copy,
-  Download,
-  FileText,
-  FolderOpen,
-  Hash,
-  Moon,
-  Plus,
-  Save,
-  Search,
-  Sidebar,
-  Sun,
-  Trash2,
-  Type,
-} from 'lucide-react';
-import MoondownEditor from './components/MoondownEditor';
-import {
+  chooseDirectory,
+  exportFile,
+  exportSettingsFile,
   isDesktopRuntime,
+  openFileAtPath,
   openMarkdownFile,
+  openMarkdownFolder,
+  readFolderTree,
   saveMarkdownFile,
-  titleFromPath,
+  importSettingsFile,
+  type FolderTreeNode,
 } from './lib/fileActions';
-import brandMarkUrl from '../assets/logo_icon_LightMode.svg';
+import { exportMarkdown, type ExportFormat, sanitizeExportName } from './lib/exporters';
+import { deriveTitle, getMarkdownMetrics } from './lib/markdown';
+import {
+  defaultSettings,
+  loadSettings,
+  parseSettingsJson,
+  saveSettings,
+  serializeSettings,
+  type EditorSettings,
+  type ThemeMode,
+} from './lib/settings';
 
-type SaveState = 'idle' | 'saving' | 'saved' | 'error';
-type ThemeMode = 'light' | 'dark';
-
-interface DocumentRecord {
-  id: string;
-  title: string;
+interface DocumentState {
   content: string;
   filePath: string | null;
-  createdAt: number;
-  updatedAt: number;
   dirty: boolean;
+  updatedAt: number;
 }
 
-const STORAGE_KEY = 'moondown-app.documents.v1';
-const THEME_KEY = 'moondown-app.theme.v1';
+type MenuAction =
+  | 'new-document'
+  | 'open-file'
+  | 'open-folder'
+  | 'save'
+  | 'save-as'
+  | 'settings'
+  | 'toggle-tree'
+  | 'toggle-syntax'
+  | 'theme-system'
+  | 'theme-light'
+  | 'theme-dark'
+  | `export-${ExportFormat}`;
 
-const starterContent = `# Moondown
+const DRAFT_KEY = 'moondown-app.current-document.v2';
 
-A quiet Markdown space for notes, drafts, research, and long-form thinking.
-
-## What is already here
-
-- Slash commands for headings, lists, quotes, tables, and code blocks.
-- WYSIWYG-style Markdown editing powered by the npm \`moondown\` package.
-- Local document persistence with native open and save in the desktop app.
-
-## A small table
-
-| Section | Purpose |
-| --- | --- |
-| Library | Keep notes close |
-| Editor | Write without visual noise |
-| Files | Open and save Markdown |
-`;
-
-const createId = () => {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-  return `doc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const copy = {
+  en: {
+    settings: 'Settings',
+    close: 'Close',
+    writing: 'Writing',
+    ai: 'AI',
+    files: 'Files',
+    appearance: 'Appearance',
+    language: 'Language',
+    theme: 'Theme',
+    accent: 'Accent color',
+    markers: 'Hide Markdown markers',
+    font: 'Font size',
+    width: 'Line width',
+    wrap: 'Word wrap',
+    spellcheck: 'Spellcheck',
+    autosave: 'Restore draft on launch',
+    aiEnabled: 'Enable AI assist',
+    provider: 'Provider',
+    baseUrl: 'Base URL',
+    model: 'Model',
+    apiKey: 'API key',
+    savePath: 'Default save path',
+    startupFolder: 'Default startup folder',
+    reopen: 'Open startup folder on launch',
+    choose: 'Choose',
+    importSettings: 'Import settings',
+    exportSettings: 'Export settings',
+    reset: 'Reset',
+    noFolder: 'No folder open',
+  },
+  'zh-CN': {
+    settings: '设置',
+    close: '关闭',
+    writing: '写作',
+    ai: 'AI',
+    files: '文件',
+    appearance: '外观',
+    language: '语言',
+    theme: '主题',
+    accent: '主题色',
+    markers: '隐藏 Markdown 标记',
+    font: '字号',
+    width: '行宽',
+    wrap: '自动换行',
+    spellcheck: '拼写检查',
+    autosave: '启动时恢复草稿',
+    aiEnabled: '启用 AI 辅助',
+    provider: '服务商',
+    baseUrl: 'Base URL',
+    model: '模型',
+    apiKey: 'API Key',
+    savePath: '默认保存路径',
+    startupFolder: '默认打开文件夹',
+    reopen: '启动时打开该文件夹',
+    choose: '选择',
+    importSettings: '导入设置',
+    exportSettings: '导出设置',
+    reset: '重置',
+    noFolder: '未打开文件夹',
+  },
 };
 
-const now = () => Date.now();
-
-const createStarterDocument = (): DocumentRecord => ({
-  id: createId(),
-  title: 'Moondown',
-  content: starterContent,
-  filePath: null,
-  createdAt: now(),
-  updatedAt: now(),
-  dirty: false,
-});
-
-const normalizeTitle = (title: string, content: string) => {
-  const trimmed = title.trim();
-  if (trimmed) return trimmed;
-  const firstHeading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
-  if (firstHeading) return firstHeading;
-  const firstLine = content.split('\n').find((line) => line.trim())?.trim();
-  return firstLine?.slice(0, 48) || 'Untitled';
-};
-
-const readStoredDocuments = (): DocumentRecord[] => {
+function loadDraft(): DocumentState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [createStarterDocument()];
-    const parsed = JSON.parse(raw) as DocumentRecord[];
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [createStarterDocument()];
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) throw new Error('empty');
+    const parsed = JSON.parse(raw) as Partial<DocumentState>;
+    return {
+      content: typeof parsed.content === 'string' ? parsed.content : '',
+      filePath: typeof parsed.filePath === 'string' ? parsed.filePath : null,
+      dirty: Boolean(parsed.dirty),
+      updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now(),
+    };
   } catch {
-    return [createStarterDocument()];
+    return { content: '', filePath: null, dirty: false, updatedAt: Date.now() };
   }
-};
-
-const formatUpdatedAt = (timestamp: number) =>
-  new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(timestamp);
-
-const getMetrics = (content: string) => {
-  const words = content.trim().split(/\s+/).filter(Boolean).length;
-  const characters = content.length;
-  const headings = [...content.matchAll(/^(#{1,6})\s+(.+)$/gm)].map((match) => ({
-    level: match[1].length,
-    text: match[2].trim(),
-  }));
-  const readingMinutes = Math.max(1, Math.ceil(words / 220));
-  return { words, characters, headings, readingMinutes };
-};
+}
 
 export default function App() {
-  const [documents, setDocuments] = useState<DocumentRecord[]>(readStoredDocuments);
-  const [activeId, setActiveId] = useState(() => documents[0]?.id ?? '');
-  const [query, setQuery] = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [theme, setTheme] = useState<ThemeMode>(() => {
-    const stored = localStorage.getItem(THEME_KEY);
-    if (stored === 'light' || stored === 'dark') return stored;
-    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
-  const [saveState, setSaveState] = useState<SaveState>('idle');
-  const [notice, setNotice] = useState<string | null>(null);
+  const editorRef = useRef<MoondownEditorHandle>(null);
+  const [settings, setSettings] = useState<EditorSettings>(() => loadSettings());
+  const [documentState, setDocumentState] = useState<DocumentState>(() =>
+    settings.autosave ? loadDraft() : { content: '', filePath: null, dirty: false, updatedAt: Date.now() },
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [folderRoot, setFolderRoot] = useState('');
+  const [folderTree, setFolderTree] = useState<FolderTreeNode[]>([]);
+  const [folderTreeVisible, setFolderTreeVisible] = useState(false);
+  const [notice, setNotice] = useState('');
 
-  const activeDocument = documents.find((document) => document.id === activeId) ?? documents[0];
-  const metrics = useMemo(() => getMetrics(activeDocument?.content ?? ''), [activeDocument?.content]);
-
-  const filteredDocuments = useMemo(() => {
-    const search = query.trim().toLowerCase();
-    if (!search) return documents;
-    return documents.filter((document) => {
-      return (
-        document.title.toLowerCase().includes(search) ||
-        document.content.toLowerCase().includes(search) ||
-        (document.filePath?.toLowerCase().includes(search) ?? false)
-      );
-    });
-  }, [documents, query]);
+  const resolvedTheme = useResolvedTheme(settings.themeMode);
+  const metrics = useMemo(() => getMarkdownMetrics(documentState.content), [documentState.content]);
+  const title = useMemo(() => deriveTitle(documentState.content, documentState.filePath), [documentState.content, documentState.filePath]);
+  const labels = copy[settings.language];
+  const statusText = notice || `${metrics.words} words · ${metrics.characters} chars · ${documentState.dirty ? 'edited' : 'saved'}`;
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(documents));
-  }, [documents]);
+    document.documentElement.dataset.theme = resolvedTheme;
+    document.documentElement.style.setProperty('--accent', settings.accentColor);
+    document.documentElement.style.setProperty('--editor-font-size', `${settings.editorFontSize}px`);
+    document.documentElement.style.setProperty('--editor-line-width', `${settings.editorLineWidth}px`);
+  }, [resolvedTheme, settings.accentColor, settings.editorFontSize, settings.editorLineWidth]);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem(THEME_KEY, theme);
-  }, [theme]);
+    saveSettings(settings);
+  }, [settings]);
+
+  useEffect(() => {
+    if (settings.autosave) {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(documentState));
+    } else {
+      localStorage.removeItem(DRAFT_KEY);
+    }
+  }, [documentState, settings.autosave]);
 
   useEffect(() => {
     if (!notice) return;
-    const timeout = window.setTimeout(() => setNotice(null), 2400);
+    const timeout = window.setTimeout(() => setNotice(''), 2200);
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  const updateDocument = useCallback((id: string, updater: (document: DocumentRecord) => DocumentRecord) => {
-    setDocuments((current) => current.map((document) => (document.id === id ? updater(document) : document)));
+  useEffect(() => {
+    if (!settings.openStartupFolder || !settings.startupFolderPath || !isDesktopRuntime()) return;
+    void loadFolder(settings.startupFolderPath);
+    // Startup folder should only be opened once at launch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const updateSettings = useCallback((patch: Partial<EditorSettings>) => {
+    setSettings((current) => ({ ...current, ...patch }));
   }, []);
 
   const createDocument = useCallback(() => {
-    const timestamp = now();
-    const nextDocument: DocumentRecord = {
-      id: createId(),
-      title: 'Untitled',
-      content: '# Untitled\n\n',
-      filePath: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      dirty: true,
-    };
-    setDocuments((current) => [nextDocument, ...current]);
-    setActiveId(nextDocument.id);
-    setSaveState('idle');
+    setDocumentState({ content: '', filePath: null, dirty: false, updatedAt: Date.now() });
+    requestAnimationFrame(() => editorRef.current?.focus());
   }, []);
 
-  const importDocument = useCallback(async () => {
+  const openFile = useCallback(async () => {
     try {
       const opened = await openMarkdownFile();
       if (!opened) return;
-      const timestamp = now();
-      const nextDocument: DocumentRecord = {
-        id: createId(),
-        title: normalizeTitle(opened.name || titleFromPath(opened.filePath), opened.content),
-        content: opened.content,
-        filePath: opened.filePath,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        dirty: false,
-      };
-      setDocuments((current) => [nextDocument, ...current]);
-      setActiveId(nextDocument.id);
-      setNotice('Opened Markdown file');
+      setDocumentState({ content: opened.content, filePath: opened.filePath, dirty: false, updatedAt: Date.now() });
+      setNotice('Opened');
+      requestAnimationFrame(() => editorRef.current?.focus());
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to open file');
+      setNotice(messageFromError(error));
     }
   }, []);
 
-  const saveCurrentDocument = useCallback(
-    async (forceSaveAs = false) => {
-      if (!activeDocument) return;
-      setSaveState('saving');
-      try {
-        const desktopRuntime = isDesktopRuntime();
-        const targetPath = await saveMarkdownFile({
-          content: activeDocument.content,
-          filePath: activeDocument.filePath,
-          suggestedName: `${normalizeTitle(activeDocument.title, activeDocument.content)}.md`,
-          forceSaveAs,
-        });
+  const loadFolder = useCallback(async (rootPath?: string) => {
+    try {
+      const selected = rootPath ?? await openMarkdownFolder();
+      if (!selected) return;
+      const tree = await readFolderTree(selected);
+      setFolderRoot(selected);
+      setFolderTree(tree);
+      setFolderTreeVisible(true);
+      setNotice('Folder opened');
+    } catch (error) {
+      setNotice(messageFromError(error));
+    }
+  }, []);
 
-        if (targetPath === null && desktopRuntime) {
-          setSaveState('idle');
-          setNotice('Save cancelled');
-          return;
-        }
+  const openTreeFile = useCallback(async (filePath: string) => {
+    try {
+      const opened = await openFileAtPath(filePath);
+      setDocumentState({ content: opened.content, filePath: opened.filePath, dirty: false, updatedAt: Date.now() });
+      setNotice('Opened');
+      requestAnimationFrame(() => editorRef.current?.focus());
+    } catch (error) {
+      setNotice(messageFromError(error));
+    }
+  }, []);
 
-        updateDocument(activeDocument.id, (document) => ({
-          ...document,
-          filePath: targetPath ?? document.filePath,
-          title: normalizeTitle(document.title || titleFromPath(targetPath), document.content),
-          updatedAt: now(),
-          dirty: false,
-        }));
-        setSaveState('saved');
-        setNotice('Saved Markdown file');
-      } catch (error) {
-        setSaveState('error');
-        setNotice(error instanceof Error ? error.message : 'Unable to save file');
+  const saveCurrentDocument = useCallback(async (forceSaveAs = false) => {
+    try {
+      const filePath = await saveMarkdownFile({
+        content: documentState.content,
+        filePath: documentState.filePath,
+        suggestedName: `${title}.md`,
+        defaultDirectory: settings.defaultSavePath,
+        forceSaveAs,
+      });
+      if (filePath === null && isDesktopRuntime()) {
+        setNotice('Save cancelled');
+        return;
       }
-    },
-    [activeDocument, updateDocument],
-  );
+      setDocumentState((current) => ({ ...current, filePath: filePath ?? current.filePath, dirty: false, updatedAt: Date.now() }));
+      setNotice('Saved');
+    } catch (error) {
+      setNotice(messageFromError(error));
+    }
+  }, [documentState.content, documentState.filePath, settings.defaultSavePath, title]);
 
-  const deleteCurrentDocument = useCallback(() => {
-    if (!activeDocument) return;
-    setDocuments((current) => {
-      const remaining = current.filter((document) => document.id !== activeDocument.id);
-      if (remaining.length === 0) {
-        const starter = createStarterDocument();
-        setActiveId(starter.id);
-        return [starter];
+  const exportCurrentDocument = useCallback(async (format: ExportFormat) => {
+    try {
+      const result = await exportMarkdown(format, documentState.content, title);
+      const suggestedName = sanitizeExportName(title, result.extension);
+      const path = await exportFile(format, result.blob, suggestedName);
+      if (path === null && isDesktopRuntime()) {
+        setNotice('Export cancelled');
+        return;
       }
-      setActiveId(remaining[0].id);
-      return remaining;
-    });
-  }, [activeDocument]);
+      setNotice(`Exported ${format.toUpperCase()}`);
+    } catch (error) {
+      setNotice(messageFromError(error));
+    }
+  }, [documentState.content, title]);
 
-  const duplicateDocument = useCallback(() => {
-    if (!activeDocument) return;
-    const timestamp = now();
-    const copy: DocumentRecord = {
-      ...activeDocument,
-      id: createId(),
-      title: `${activeDocument.title} Copy`,
-      filePath: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      dirty: true,
-    };
-    setDocuments((current) => [copy, ...current]);
-    setActiveId(copy.id);
-  }, [activeDocument]);
+  const handleMenuAction = useCallback((action: MenuAction) => {
+    if (action === 'new-document') createDocument();
+    else if (action === 'open-file') void openFile();
+    else if (action === 'open-folder') void loadFolder();
+    else if (action === 'save') void saveCurrentDocument(false);
+    else if (action === 'save-as') void saveCurrentDocument(true);
+    else if (action === 'settings') setSettingsOpen(true);
+    else if (action === 'toggle-tree') setFolderTreeVisible((visible) => !visible);
+    else if (action === 'toggle-syntax') updateSettings({ hideMarkdownSyntax: !settings.hideMarkdownSyntax });
+    else if (action === 'theme-system' || action === 'theme-light' || action === 'theme-dark') {
+      updateSettings({ themeMode: action.replace('theme-', '') as ThemeMode });
+    } else if (action.startsWith('export-')) {
+      void exportCurrentDocument(action.replace('export-', '') as ExportFormat);
+    }
+  }, [
+    createDocument,
+    exportCurrentDocument,
+    loadFolder,
+    openFile,
+    saveCurrentDocument,
+    settings.hideMarkdownSyntax,
+    updateSettings,
+  ]);
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
+    if (!isDesktopRuntime()) return;
+    let unlisten: (() => void) | undefined;
+    void import('@tauri-apps/api/event').then(({ listen }) =>
+      listen<MenuAction>('moondown-menu', (event) => handleMenuAction(event.payload)).then((cleanup) => {
+        unlisten = cleanup;
+      }),
+    );
+    return () => unlisten?.();
+  }, [handleMenuAction]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
       const command = event.metaKey || event.ctrlKey;
       if (!command) return;
-
-      if (event.key.toLowerCase() === 's') {
+      const key = event.key.toLowerCase();
+      if (key === ',') {
+        event.preventDefault();
+        setSettingsOpen(true);
+      } else if (key === 'n') {
+        event.preventDefault();
+        createDocument();
+      } else if (key === 'o' && event.shiftKey) {
+        event.preventDefault();
+        void loadFolder();
+      } else if (key === 'o') {
+        event.preventDefault();
+        void openFile();
+      } else if (key === 's') {
         event.preventDefault();
         void saveCurrentDocument(event.shiftKey);
       }
-      if (event.key.toLowerCase() === 'o') {
-        event.preventDefault();
-        void importDocument();
-      }
-      if (event.key.toLowerCase() === 'n') {
-        event.preventDefault();
-        createDocument();
-      }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [createDocument, importDocument, saveCurrentDocument]);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [createDocument, loadFolder, openFile, saveCurrentDocument]);
 
-  if (!activeDocument) return null;
+  const aiStreamHandler = useMemo<AIStreamHandler>(() => {
+    return (systemPrompt, userPrompt, signal) => {
+      if (!settings.aiEnabled || !settings.aiApiKey || !settings.aiBaseUrl || !settings.aiModel) {
+        setSettingsOpen(true);
+        return emptyAIStream();
+      }
+      return requestAIStream(settings, systemPrompt, userPrompt, signal);
+    };
+  }, [settings]);
 
   return (
-    <div className="app-shell">
-      <header className="topbar" data-tauri-drag-region>
-        <div className="brand">
-          <img src={brandMarkUrl} alt="" className="brand-mark" />
-          <div>
-            <strong>Moondown</strong>
-            <span>{isDesktopRuntime() ? 'Desktop' : 'Web Preview'}</span>
-          </div>
+    <main className={`blank-shell ${folderTreeVisible && folderTree.length > 0 ? 'with-tree' : ''}`}>
+      <div className="window-drag-layer" data-tauri-drag-region />
+
+      {folderTreeVisible && folderTree.length > 0 && (
+        <aside className="folder-tree" aria-label="Folder tree">
+          <div className="folder-root" title={folderRoot}>{folderRoot || labels.noFolder}</div>
+          <FolderTree nodes={folderTree} activePath={documentState.filePath} onOpenFile={openTreeFile} />
+        </aside>
+      )}
+
+      <section className="writing-pane" aria-label="Markdown editor">
+        <MoondownEditor
+          ref={editorRef}
+          value={documentState.content}
+          theme={resolvedTheme}
+          locale={settings.language}
+          placeholder=""
+          hideMarkdownSyntax={settings.hideMarkdownSyntax}
+          focusOnMount
+          onAIStream={aiStreamHandler}
+          onChange={(content) => setDocumentState((current) => ({
+            ...current,
+            content,
+            dirty: true,
+            updatedAt: Date.now(),
+          }))}
+        />
+      </section>
+
+      <div className="status-line" aria-live="polite">{statusText}</div>
+
+      {settingsOpen && (
+        <SettingsSheet
+          labels={labels}
+          settings={settings}
+          onChange={updateSettings}
+          onClose={() => {
+            setSettingsOpen(false);
+            requestAnimationFrame(() => editorRef.current?.focus());
+          }}
+          onChooseDefaultSavePath={async () => {
+            const path = await chooseDirectory();
+            if (path) updateSettings({ defaultSavePath: path });
+          }}
+          onChooseStartupFolder={async () => {
+            const path = await chooseDirectory();
+            if (path) updateSettings({ startupFolderPath: path });
+          }}
+          onImportSettings={async () => {
+            try {
+              const raw = await importSettingsFile();
+              if (raw) setSettings(parseSettingsJson(raw));
+            } catch (error) {
+              setNotice(messageFromError(error));
+            }
+          }}
+          onExportSettings={async () => {
+            try {
+              await exportSettingsFile(serializeSettings(settings));
+              setNotice('Settings exported');
+            } catch (error) {
+              setNotice(messageFromError(error));
+            }
+          }}
+          onReset={() => setSettings(defaultSettings)}
+        />
+      )}
+    </main>
+  );
+}
+
+function FolderTree({
+  nodes,
+  activePath,
+  onOpenFile,
+}: {
+  nodes: FolderTreeNode[];
+  activePath: string | null;
+  onOpenFile: (path: string) => void;
+}) {
+  return (
+    <ul className="folder-branch">
+      {nodes.map((node) => (
+        <FolderTreeItem key={node.id} node={node} activePath={activePath} onOpenFile={onOpenFile} />
+      ))}
+    </ul>
+  );
+}
+
+function FolderTreeItem({
+  node,
+  activePath,
+  onOpenFile,
+}: {
+  node: FolderTreeNode;
+  activePath: string | null;
+  onOpenFile: (path: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const isDirectory = node.kind === 'directory';
+  const isActive = node.path === activePath;
+  return (
+    <li>
+      <button
+        type="button"
+        className={`tree-row ${isActive ? 'active' : ''}`}
+        onClick={() => (isDirectory ? setOpen((value) => !value) : onOpenFile(node.path))}
+        title={node.path}
+      >
+        {isDirectory ? (open ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <FileText size={14} />}
+        {isDirectory && <Folder size={14} />}
+        <span>{node.name}</span>
+      </button>
+      {isDirectory && open && node.children && (
+        <FolderTree nodes={node.children} activePath={activePath} onOpenFile={onOpenFile} />
+      )}
+    </li>
+  );
+}
+
+function SettingsSheet({
+  labels,
+  settings,
+  onChange,
+  onClose,
+  onChooseDefaultSavePath,
+  onChooseStartupFolder,
+  onImportSettings,
+  onExportSettings,
+  onReset,
+}: {
+  labels: typeof copy.en;
+  settings: EditorSettings;
+  onChange: (patch: Partial<EditorSettings>) => void;
+  onClose: () => void;
+  onChooseDefaultSavePath: () => void;
+  onChooseStartupFolder: () => void;
+  onImportSettings: () => void;
+  onExportSettings: () => void;
+  onReset: () => void;
+}) {
+  return (
+    <div className="settings-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="settings-sheet" role="dialog" aria-modal="true" aria-label={labels.settings}>
+        <header className="settings-header">
+          <h1>{labels.settings}</h1>
+          <button type="button" className="ghost-icon" aria-label={labels.close} onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="settings-grid">
+          <section>
+            <h2>{labels.appearance}</h2>
+            <label>
+              <span>{labels.theme}</span>
+              <select value={settings.themeMode} onChange={(event) => onChange({ themeMode: event.target.value as ThemeMode })}>
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+            <label>
+              <span>{labels.accent}</span>
+              <input type="color" value={settings.accentColor} onChange={(event) => onChange({ accentColor: event.target.value })} />
+            </label>
+            <label>
+              <span>{labels.language}</span>
+              <select value={settings.language} onChange={(event) => onChange({ language: event.target.value === 'zh-CN' ? 'zh-CN' : 'en' })}>
+                <option value="en">English</option>
+                <option value="zh-CN">中文</option>
+              </select>
+            </label>
+          </section>
+
+          <section>
+            <h2>{labels.writing}</h2>
+            <Toggle label={labels.markers} checked={settings.hideMarkdownSyntax} onChange={(checked) => onChange({ hideMarkdownSyntax: checked })} />
+            <Toggle label={labels.wrap} checked={settings.wordWrap} onChange={(checked) => onChange({ wordWrap: checked })} />
+            <Toggle label={labels.spellcheck} checked={settings.spellcheck} onChange={(checked) => onChange({ spellcheck: checked })} />
+            <Toggle label={labels.autosave} checked={settings.autosave} onChange={(checked) => onChange({ autosave: checked })} />
+            <label>
+              <span>{labels.font}</span>
+              <input type="range" min="14" max="26" value={settings.editorFontSize} onChange={(event) => onChange({ editorFontSize: Number(event.target.value) })} />
+            </label>
+            <label>
+              <span>{labels.width}</span>
+              <input type="range" min="560" max="1080" step="20" value={settings.editorLineWidth} onChange={(event) => onChange({ editorLineWidth: Number(event.target.value) })} />
+            </label>
+          </section>
+
+          <section>
+            <h2>{labels.files}</h2>
+            <PathControl label={labels.savePath} value={settings.defaultSavePath} onChoose={onChooseDefaultSavePath} chooseLabel={labels.choose} />
+            <PathControl label={labels.startupFolder} value={settings.startupFolderPath} onChoose={onChooseStartupFolder} chooseLabel={labels.choose} />
+            <Toggle label={labels.reopen} checked={settings.openStartupFolder} onChange={(checked) => onChange({ openStartupFolder: checked })} />
+            <div className="button-row">
+              <button type="button" onClick={onImportSettings}>{labels.importSettings}</button>
+              <button type="button" onClick={onExportSettings}>{labels.exportSettings}</button>
+              <button type="button" onClick={onReset}>{labels.reset}</button>
+            </div>
+          </section>
+
+          <section>
+            <h2>{labels.ai}</h2>
+            <Toggle label={labels.aiEnabled} checked={settings.aiEnabled} onChange={(checked) => onChange({ aiEnabled: checked })} />
+            <label>
+              <span>{labels.provider}</span>
+              <input value={settings.aiProvider} onChange={(event) => onChange({ aiProvider: event.target.value })} />
+            </label>
+            <label>
+              <span>{labels.baseUrl}</span>
+              <input value={settings.aiBaseUrl} onChange={(event) => onChange({ aiBaseUrl: event.target.value })} />
+            </label>
+            <label>
+              <span>{labels.model}</span>
+              <input value={settings.aiModel} onChange={(event) => onChange({ aiModel: event.target.value })} />
+            </label>
+            <label>
+              <span>{labels.apiKey}</span>
+              <input type="password" value={settings.aiApiKey} onChange={(event) => onChange({ aiApiKey: event.target.value })} />
+            </label>
+          </section>
         </div>
-
-        <nav className="toolbar" aria-label="Document actions">
-          <button className="icon-button" type="button" title="Toggle library" aria-label="Toggle library" onClick={() => setSidebarOpen((open) => !open)}>
-            <Sidebar size={18} />
-          </button>
-          <button className="toolbar-button" type="button" aria-label="New document" onClick={createDocument}>
-            <Plus size={17} />
-            New
-          </button>
-          <button className="toolbar-button" type="button" aria-label="Open document" onClick={importDocument}>
-            <FolderOpen size={17} />
-            Open
-          </button>
-          <button className="toolbar-button primary" type="button" aria-label="Save document" onClick={() => saveCurrentDocument(false)}>
-            <Save size={17} />
-            Save
-          </button>
-          <button className="icon-button" type="button" title="Save as" aria-label="Save as" onClick={() => saveCurrentDocument(true)}>
-            <Download size={18} />
-          </button>
-          <button className="icon-button" type="button" title="Toggle appearance" aria-label="Toggle appearance" onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}>
-            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
-        </nav>
-      </header>
-
-      <div className={`workspace ${sidebarOpen ? 'with-sidebar' : 'without-sidebar'}`}>
-        <aside className="library" aria-label="Document library">
-          <div className="search-shell">
-            <Search size={16} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" aria-label="Search documents" />
-          </div>
-
-          <div className="document-list">
-            {filteredDocuments.map((document) => (
-              <button
-                type="button"
-                key={document.id}
-                className={`document-item ${document.id === activeDocument.id ? 'active' : ''}`}
-                onClick={() => setActiveId(document.id)}
-              >
-                <FileText size={18} />
-                <span>
-                  <strong>{document.title}</strong>
-                  <small>{formatUpdatedAt(document.updatedAt)}</small>
-                </span>
-                {document.dirty && <i aria-label="Unsaved changes" />}
-              </button>
-            ))}
-          </div>
-        </aside>
-
-        <main className="editor-stage">
-          <section className="document-title-row">
-            <input
-              className="title-input"
-              value={activeDocument.title}
-              aria-label="Document title"
-              onChange={(event) =>
-                updateDocument(activeDocument.id, (document) => ({
-                  ...document,
-                  title: event.target.value,
-                  updatedAt: now(),
-                  dirty: true,
-                }))
-              }
-            />
-            <div className={`save-state ${saveState}`}>
-              {saveState === 'saving' ? 'Saving' : activeDocument.dirty ? 'Edited' : saveState === 'error' ? 'Save failed' : 'Saved'}
-            </div>
-          </section>
-
-          <section className="path-row" aria-label="File path">
-            <span>{activeDocument.filePath ?? 'Local library'}</span>
-            <div className="inline-actions">
-              <button type="button" title="Duplicate" aria-label="Duplicate document" onClick={duplicateDocument}>
-                <Copy size={16} />
-              </button>
-              <button type="button" title="Delete" aria-label="Delete document" onClick={deleteCurrentDocument}>
-                <Trash2 size={16} />
-              </button>
-            </div>
-          </section>
-
-          <section className="editor-surface">
-            <MoondownEditor
-              value={activeDocument.content}
-              theme={theme}
-              placeholder="Write Markdown..."
-              onChange={(content) =>
-                updateDocument(activeDocument.id, (document) => ({
-                  ...document,
-                  content,
-                  title: document.title === 'Untitled' ? normalizeTitle(document.title, content) : document.title,
-                  updatedAt: now(),
-                  dirty: true,
-                }))
-              }
-            />
-          </section>
-        </main>
-
-        <aside className="inspector" aria-label="Document details">
-          <section>
-            <h2>Outline</h2>
-            <div className="outline-list">
-              {metrics.headings.length === 0 ? (
-                <span className="muted">No headings</span>
-              ) : (
-                metrics.headings.map((heading, index) => (
-                  <span key={`${heading.text}-${index}`} style={{ paddingLeft: `${(heading.level - 1) * 10}px` }}>
-                    {heading.text}
-                  </span>
-                ))
-              )}
-            </div>
-          </section>
-
-          <section>
-            <h2>Details</h2>
-            <div className="metric-grid">
-              <span>
-                <Type size={16} />
-                {metrics.words} words
-              </span>
-              <span>
-                <Hash size={16} />
-                {metrics.characters} chars
-              </span>
-              <span>
-                <Clock size={16} />
-                {metrics.readingMinutes} min
-              </span>
-              <span>
-                <BookOpen size={16} />
-                {metrics.headings.length} heads
-              </span>
-            </div>
-          </section>
-        </aside>
-      </div>
-
-      {notice && <div className="toast">{notice}</div>}
+      </section>
     </div>
   );
+}
+
+function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="toggle-row">
+      <span>{label}</span>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    </label>
+  );
+}
+
+function PathControl({
+  label,
+  value,
+  onChoose,
+  chooseLabel,
+}: {
+  label: string;
+  value: string;
+  onChoose: () => void;
+  chooseLabel: string;
+}) {
+  return (
+    <label>
+      <span>{label}</span>
+      <div className="path-control">
+        <input value={value} readOnly />
+        <button type="button" onClick={onChoose}>{chooseLabel}</button>
+      </div>
+    </label>
+  );
+}
+
+function useResolvedTheme(themeMode: ThemeMode) {
+  const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(() =>
+    window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (!media) return;
+    const listener = (event: MediaQueryListEvent) => setSystemTheme(event.matches ? 'dark' : 'light');
+    media.addEventListener('change', listener);
+    return () => media.removeEventListener('change', listener);
+  }, []);
+
+  return themeMode === 'system' ? systemTheme : themeMode;
+}
+
+async function requestAIStream(
+  settings: EditorSettings,
+  systemPrompt: string,
+  userPrompt: string,
+  signal: AbortSignal,
+): Promise<ReadableStream<string>> {
+  if (!settings.aiApiKey || !settings.aiBaseUrl || !settings.aiModel) {
+    throw new Error('AI settings are incomplete.');
+  }
+
+  const response = await fetch(settings.aiBaseUrl, {
+    method: 'POST',
+    signal,
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${settings.aiApiKey}`,
+    },
+    body: JSON.stringify({
+      model: settings.aiModel,
+      stream: true,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    }),
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error(`AI request failed with ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  return new ReadableStream<string>({
+    async pull(controller) {
+      const { value, done } = await reader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      const chunk = decoder.decode(value, { stream: true });
+      for (const line of chunk.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === '[DONE]') {
+          controller.close();
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> };
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) controller.enqueue(content);
+        } catch {
+          controller.enqueue(data);
+        }
+      }
+    },
+    cancel() {
+      reader.cancel().catch(() => undefined);
+    },
+  });
+}
+
+function messageFromError(error: unknown): string {
+  return error instanceof Error ? error.message : 'Operation failed';
+}
+
+function emptyAIStream(): Promise<ReadableStream<string>> {
+  return Promise.resolve(new ReadableStream<string>({
+    start(controller) {
+      controller.close();
+    },
+  }));
 }
