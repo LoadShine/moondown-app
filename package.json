@@ -35,5 +35,10 @@
     "typescript": "^6.0.3",
     "vite": "^8.0.13"
   },
-  "packageManager": "pnpm@9.6.0"
+  "packageManager": "pnpm@9.6.0",
+  "pnpm": {
+    "patchedDependencies": {
+      "moondown@1.0.0": "patches/moondown@1.0.0.patch"
+    }
+  }
 }

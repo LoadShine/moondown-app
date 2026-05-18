@@ -1,6 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { AIStreamHandler } from 'moondown';
-import { ChevronDown, ChevronRight, FileText, Folder, X } from 'lucide-react';
+import {
+  Bot,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  FileText,
+  Folder,
+  FolderOpen,
+  Languages,
+  Palette,
+  PenLine,
+  RotateCcw,
+  SlidersHorizontal,
+  Upload,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import MoondownEditor, { type MoondownEditorHandle } from './components/MoondownEditor';
 import {
   chooseDirectory,
@@ -54,12 +71,18 @@ const copy = {
   en: {
     settings: 'Settings',
     close: 'Close',
+    general: 'General',
     writing: 'Writing',
     ai: 'AI',
     files: 'Files',
     appearance: 'Appearance',
+    importExport: 'Import & Export',
+    advanced: 'Advanced',
     language: 'Language',
     theme: 'Theme',
+    system: 'System',
+    light: 'Light',
+    dark: 'Dark',
     accent: 'Accent color',
     markers: 'Hide Markdown markers',
     font: 'Font size',
@@ -76,20 +99,36 @@ const copy = {
     startupFolder: 'Default startup folder',
     reopen: 'Open startup folder on launch',
     choose: 'Choose',
+    openFile: 'Open file',
+    openFolder: 'Open folder',
+    exportAs: 'Export as',
+    exportMarkdown: 'Markdown',
+    exportText: 'Text',
+    exportHtml: 'HTML',
+    exportWord: 'Word',
+    exportImage: 'JPG',
+    exportEpub: 'EPUB',
     importSettings: 'Import settings',
     exportSettings: 'Export settings',
     reset: 'Reset',
     noFolder: 'No folder open',
+    localOnly: 'Local configuration',
   },
   'zh-CN': {
     settings: '设置',
     close: '关闭',
+    general: '通用',
     writing: '写作',
     ai: 'AI',
     files: '文件',
     appearance: '外观',
+    importExport: '导入与导出',
+    advanced: '高级',
     language: '语言',
     theme: '主题',
+    system: '跟随系统',
+    light: '浅色',
+    dark: '深色',
     accent: '主题色',
     markers: '隐藏 Markdown 标记',
     font: '字号',
@@ -106,10 +145,20 @@ const copy = {
     startupFolder: '默认打开文件夹',
     reopen: '启动时打开该文件夹',
     choose: '选择',
+    openFile: '打开文件',
+    openFolder: '打开文件夹',
+    exportAs: '导出为',
+    exportMarkdown: 'Markdown',
+    exportText: '纯文本',
+    exportHtml: 'HTML',
+    exportWord: 'Word',
+    exportImage: 'JPG',
+    exportEpub: 'EPUB',
     importSettings: '导入设置',
     exportSettings: '导出设置',
     reset: '重置',
     noFolder: '未打开文件夹',
+    localOnly: '本地配置',
   },
 };
 
@@ -146,6 +195,8 @@ export default function App() {
   const title = useMemo(() => deriveTitle(documentState.content, documentState.filePath), [documentState.content, documentState.filePath]);
   const labels = copy[settings.language];
   const statusText = notice || `${metrics.words} words · ${metrics.characters} chars · ${documentState.dirty ? 'edited' : 'saved'}`;
+
+  useDesktopWindowDragging();
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
@@ -373,6 +424,9 @@ export default function App() {
             setSettingsOpen(false);
             requestAnimationFrame(() => editorRef.current?.focus());
           }}
+          onOpenFile={() => void openFile()}
+          onOpenFolder={() => void loadFolder()}
+          onExportFormat={(format) => void exportCurrentDocument(format)}
           onChooseDefaultSavePath={async () => {
             const path = await chooseDirectory();
             if (path) updateSettings({ defaultSavePath: path });
@@ -458,6 +512,9 @@ function SettingsSheet({
   settings,
   onChange,
   onClose,
+  onOpenFile,
+  onOpenFolder,
+  onExportFormat,
   onChooseDefaultSavePath,
   onChooseStartupFolder,
   onImportSettings,
@@ -468,12 +525,28 @@ function SettingsSheet({
   settings: EditorSettings;
   onChange: (patch: Partial<EditorSettings>) => void;
   onClose: () => void;
+  onOpenFile: () => void;
+  onOpenFolder: () => void;
+  onExportFormat: (format: ExportFormat) => void;
   onChooseDefaultSavePath: () => void;
   onChooseStartupFolder: () => void;
   onImportSettings: () => void;
   onExportSettings: () => void;
   onReset: () => void;
 }) {
+  type SectionId = 'general' | 'appearance' | 'writing' | 'files' | 'ai' | 'importExport' | 'advanced';
+  const [activeSection, setActiveSection] = useState<SectionId>('general');
+  const sections: Array<{ id: SectionId; label: string; icon: LucideIcon }> = [
+    { id: 'general', label: labels.general, icon: SlidersHorizontal },
+    { id: 'appearance', label: labels.appearance, icon: Palette },
+    { id: 'writing', label: labels.writing, icon: PenLine },
+    { id: 'files', label: labels.files, icon: FolderOpen },
+    { id: 'ai', label: labels.ai, icon: Bot },
+    { id: 'importExport', label: labels.importExport, icon: Download },
+    { id: 'advanced', label: labels.advanced, icon: Languages },
+  ];
+  const activeLabel = sections.find((section) => section.id === activeSection)?.label ?? labels.settings;
+
   return (
     <div className="settings-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
@@ -486,78 +559,132 @@ function SettingsSheet({
           </button>
         </header>
 
-        <div className="settings-grid">
-          <section>
-            <h2>{labels.appearance}</h2>
-            <label>
-              <span>{labels.theme}</span>
-              <select value={settings.themeMode} onChange={(event) => onChange({ themeMode: event.target.value as ThemeMode })}>
-                <option value="system">System</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </label>
-            <label>
-              <span>{labels.accent}</span>
-              <input type="color" value={settings.accentColor} onChange={(event) => onChange({ accentColor: event.target.value })} />
-            </label>
-            <label>
-              <span>{labels.language}</span>
-              <select value={settings.language} onChange={(event) => onChange({ language: event.target.value === 'zh-CN' ? 'zh-CN' : 'en' })}>
-                <option value="en">English</option>
-                <option value="zh-CN">中文</option>
-              </select>
-            </label>
-          </section>
+        <div className="settings-layout">
+          <nav className="settings-nav" aria-label={labels.settings}>
+            {sections.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                className={activeSection === id ? 'active' : ''}
+                onClick={() => setActiveSection(id)}
+              >
+                <Icon size={16} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
 
-          <section>
-            <h2>{labels.writing}</h2>
-            <Toggle label={labels.markers} checked={settings.hideMarkdownSyntax} onChange={(checked) => onChange({ hideMarkdownSyntax: checked })} />
-            <Toggle label={labels.wrap} checked={settings.wordWrap} onChange={(checked) => onChange({ wordWrap: checked })} />
-            <Toggle label={labels.spellcheck} checked={settings.spellcheck} onChange={(checked) => onChange({ spellcheck: checked })} />
-            <Toggle label={labels.autosave} checked={settings.autosave} onChange={(checked) => onChange({ autosave: checked })} />
-            <label>
-              <span>{labels.font}</span>
-              <input type="range" min="14" max="26" value={settings.editorFontSize} onChange={(event) => onChange({ editorFontSize: Number(event.target.value) })} />
-            </label>
-            <label>
-              <span>{labels.width}</span>
-              <input type="range" min="560" max="1080" step="20" value={settings.editorLineWidth} onChange={(event) => onChange({ editorLineWidth: Number(event.target.value) })} />
-            </label>
-          </section>
-
-          <section>
-            <h2>{labels.files}</h2>
-            <PathControl label={labels.savePath} value={settings.defaultSavePath} onChoose={onChooseDefaultSavePath} chooseLabel={labels.choose} />
-            <PathControl label={labels.startupFolder} value={settings.startupFolderPath} onChoose={onChooseStartupFolder} chooseLabel={labels.choose} />
-            <Toggle label={labels.reopen} checked={settings.openStartupFolder} onChange={(checked) => onChange({ openStartupFolder: checked })} />
-            <div className="button-row">
-              <button type="button" onClick={onImportSettings}>{labels.importSettings}</button>
-              <button type="button" onClick={onExportSettings}>{labels.exportSettings}</button>
-              <button type="button" onClick={onReset}>{labels.reset}</button>
+          <div className="settings-panel">
+            <div className="settings-panel-title">
+              <h2>{activeLabel}</h2>
+              <span>{labels.localOnly}</span>
             </div>
-          </section>
 
-          <section>
-            <h2>{labels.ai}</h2>
-            <Toggle label={labels.aiEnabled} checked={settings.aiEnabled} onChange={(checked) => onChange({ aiEnabled: checked })} />
-            <label>
-              <span>{labels.provider}</span>
-              <input value={settings.aiProvider} onChange={(event) => onChange({ aiProvider: event.target.value })} />
-            </label>
-            <label>
-              <span>{labels.baseUrl}</span>
-              <input value={settings.aiBaseUrl} onChange={(event) => onChange({ aiBaseUrl: event.target.value })} />
-            </label>
-            <label>
-              <span>{labels.model}</span>
-              <input value={settings.aiModel} onChange={(event) => onChange({ aiModel: event.target.value })} />
-            </label>
-            <label>
-              <span>{labels.apiKey}</span>
-              <input type="password" value={settings.aiApiKey} onChange={(event) => onChange({ aiApiKey: event.target.value })} />
-            </label>
-          </section>
+            {activeSection === 'general' && (
+              <div className="preference-group">
+                <SegmentedControl
+                  label={labels.language}
+                  value={settings.language}
+                  options={[
+                    { value: 'en', label: 'English' },
+                    { value: 'zh-CN', label: '中文' },
+                  ]}
+                  onChange={(value) => onChange({ language: value === 'zh-CN' ? 'zh-CN' : 'en' })}
+                />
+                <Toggle label={labels.autosave} checked={settings.autosave} onChange={(checked) => onChange({ autosave: checked })} />
+                <Toggle label={labels.reopen} checked={settings.openStartupFolder} onChange={(checked) => onChange({ openStartupFolder: checked })} />
+              </div>
+            )}
+
+            {activeSection === 'appearance' && (
+              <div className="preference-group">
+                <SegmentedControl
+                  label={labels.theme}
+                  value={settings.themeMode}
+                  options={[
+                    { value: 'system', label: labels.system },
+                    { value: 'light', label: labels.light },
+                    { value: 'dark', label: labels.dark },
+                  ]}
+                  onChange={(value) => onChange({ themeMode: value as ThemeMode })}
+                />
+                <FieldRow label={labels.accent}>
+                  <div className="accent-control">
+                    {['#365f53', '#3468c8', '#8e5ec6', '#b4554f', '#9a6b2f'].map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        className={settings.accentColor.toLowerCase() === color ? 'selected' : ''}
+                        style={{ background: color }}
+                        aria-label={color}
+                        onClick={() => onChange({ accentColor: color })}
+                      />
+                    ))}
+                    <input type="color" aria-label={labels.accent} value={settings.accentColor} onChange={(event) => onChange({ accentColor: event.target.value })} />
+                  </div>
+                </FieldRow>
+              </div>
+            )}
+
+            {activeSection === 'writing' && (
+              <div className="preference-group">
+                <Toggle label={labels.markers} checked={settings.hideMarkdownSyntax} onChange={(checked) => onChange({ hideMarkdownSyntax: checked })} />
+                <Toggle label={labels.wrap} checked={settings.wordWrap} onChange={(checked) => onChange({ wordWrap: checked })} />
+                <Toggle label={labels.spellcheck} checked={settings.spellcheck} onChange={(checked) => onChange({ spellcheck: checked })} />
+                <RangeControl label={labels.font} value={settings.editorFontSize} min={14} max={26} onChange={(value) => onChange({ editorFontSize: value })} />
+                <RangeControl label={labels.width} value={settings.editorLineWidth} min={560} max={1080} step={20} onChange={(value) => onChange({ editorLineWidth: value })} />
+              </div>
+            )}
+
+            {activeSection === 'files' && (
+              <div className="preference-group">
+                <PathControl label={labels.savePath} value={settings.defaultSavePath} onChoose={onChooseDefaultSavePath} chooseLabel={labels.choose} />
+                <PathControl label={labels.startupFolder} value={settings.startupFolderPath} onChoose={onChooseStartupFolder} chooseLabel={labels.choose} />
+                <div className="settings-action-grid">
+                  <button type="button" onClick={onOpenFile}><FileText size={15} />{labels.openFile}</button>
+                  <button type="button" onClick={onOpenFolder}><FolderOpen size={15} />{labels.openFolder}</button>
+                </div>
+              </div>
+            )}
+
+            {activeSection === 'ai' && (
+              <div className="preference-group">
+                <Toggle label={labels.aiEnabled} checked={settings.aiEnabled} onChange={(checked) => onChange({ aiEnabled: checked })} />
+                <TextControl label={labels.provider} value={settings.aiProvider} onChange={(value) => onChange({ aiProvider: value })} />
+                <TextControl label={labels.baseUrl} value={settings.aiBaseUrl} onChange={(value) => onChange({ aiBaseUrl: value })} />
+                <TextControl label={labels.model} value={settings.aiModel} onChange={(value) => onChange({ aiModel: value })} />
+                <TextControl label={labels.apiKey} type="password" value={settings.aiApiKey} onChange={(value) => onChange({ aiApiKey: value })} />
+              </div>
+            )}
+
+            {activeSection === 'importExport' && (
+              <div className="preference-group">
+                <FieldRow label={labels.exportAs}>
+                  <div className="export-grid">
+                    <button type="button" onClick={() => onExportFormat('markdown')}>{labels.exportMarkdown}</button>
+                    <button type="button" onClick={() => onExportFormat('txt')}>{labels.exportText}</button>
+                    <button type="button" onClick={() => onExportFormat('html')}>{labels.exportHtml}</button>
+                    <button type="button" onClick={() => onExportFormat('docx')}>{labels.exportWord}</button>
+                    <button type="button" onClick={() => onExportFormat('jpg')}>{labels.exportImage}</button>
+                    <button type="button" onClick={() => onExportFormat('epub')}>{labels.exportEpub}</button>
+                  </div>
+                </FieldRow>
+                <div className="settings-action-grid">
+                  <button type="button" onClick={onImportSettings}><Upload size={15} />{labels.importSettings}</button>
+                  <button type="button" onClick={onExportSettings}><Download size={15} />{labels.exportSettings}</button>
+                </div>
+              </div>
+            )}
+
+            {activeSection === 'advanced' && (
+              <div className="preference-group">
+                <button type="button" className="reset-row" onClick={onReset}>
+                  <RotateCcw size={16} />
+                  <span>{labels.reset}</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </section>
     </div>
@@ -566,10 +693,94 @@ function SettingsSheet({
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <label className="toggle-row">
+    <label className="settings-row toggle-row">
       <span>{label}</span>
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span className="switch-control">
+        <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+        <span />
+      </span>
     </label>
+  );
+}
+
+function FieldRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="settings-row">
+      <span>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function TextControl({
+  label,
+  value,
+  type = 'text',
+  onChange,
+}: {
+  label: string;
+  value: string;
+  type?: 'text' | 'password';
+  onChange: (value: string) => void;
+}) {
+  return (
+    <FieldRow label={label}>
+      <input type={type} aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} />
+    </FieldRow>
+  );
+}
+
+function RangeControl({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <FieldRow label={label}>
+      <div className="range-control">
+        <input type="range" aria-label={label} min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+        <output>{value}</output>
+      </div>
+    </FieldRow>
+  );
+}
+
+function SegmentedControl<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <FieldRow label={label}>
+      <div className="segmented-control">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={option.value === value ? 'selected' : ''}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </FieldRow>
   );
 }
 
@@ -585,14 +796,46 @@ function PathControl({
   chooseLabel: string;
 }) {
   return (
-    <label>
+    <div className="settings-row">
       <span>{label}</span>
       <div className="path-control">
-        <input value={value} readOnly />
+        <input value={value} readOnly aria-label={label} />
         <button type="button" onClick={onChoose}>{chooseLabel}</button>
       </div>
-    </label>
+    </div>
   );
+}
+
+function useDesktopWindowDragging() {
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+
+    const interactiveSelector = [
+      'a',
+      'button',
+      'input',
+      'select',
+      'textarea',
+      '[contenteditable="true"]',
+      '[role="button"]',
+      '.cm-editor',
+      '.folder-tree',
+      '.settings-sheet',
+    ].join(',');
+
+    const handleMouseDown = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      const target = event.target instanceof Element ? event.target : null;
+      const dragRegion = target?.closest('[data-tauri-drag-region]');
+      if (!target || !dragRegion || target.closest(interactiveSelector)) return;
+
+      event.preventDefault();
+      void getCurrentWindow().startDragging().catch(() => undefined);
+    };
+
+    document.addEventListener('mousedown', handleMouseDown, true);
+    return () => document.removeEventListener('mousedown', handleMouseDown, true);
+  }, []);
 }
 
 function useResolvedTheme(themeMode: ThemeMode) {

@@ -44,7 +44,10 @@ if (appSource && appSource.includes('starterContent')) failures.push('App.tsx mu
 if (appSource && appSource.includes('className="topbar"')) failures.push('App.tsx must not render a visible topbar on first launch.');
 if (appSource && appSource.includes('className="brand"')) failures.push('App.tsx must not render visible brand chrome on first launch.');
 if (appSource && !appSource.includes('data-tauri-drag-region')) failures.push('App.tsx must include an invisible drag region for hiddenTitle windows.');
+if (appSource && !appSource.includes('startDragging')) failures.push('App.tsx must call Tauri startDragging for hiddenTitle drag fallback.');
 if (appSource && !appSource.includes('settings-sheet')) failures.push('App.tsx must expose a settings sheet opened from the menu.');
+if (appSource && !appSource.includes('settings-nav')) failures.push('Settings must use categorized navigation instead of one piled grid.');
+if (appSource && appSource.includes('settings-grid')) failures.push('Settings must not use the old piled settings grid.');
 if (appSource && !appSource.includes('folder-tree')) failures.push('App.tsx must support a folder tree view.');
 if (appSource && !appSource.includes('moondown-menu')) failures.push('App.tsx must listen for native menu events.');
 if (appSource && !appSource.includes('exportCurrentDocument')) failures.push('App.tsx must support exporting the current document.');

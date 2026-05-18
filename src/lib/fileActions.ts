@@ -40,7 +40,12 @@ const exportFilters: Record<ExportFormat, { name: string; extensions: string[] }
 
 export const isDesktopRuntime = () =>
   typeof window !== 'undefined' &&
-  ('__TAURI_INTERNALS__' in window || navigator.userAgent.includes('Tauri'));
+  (
+    '__TAURI_INTERNALS__' in window ||
+    '__TAURI__' in window ||
+    window.location.protocol === 'tauri:' ||
+    navigator.userAgent.includes('Tauri')
+  );
 
 export const titleFromPath = (filePath: string | null, fallback = 'Untitled') => {
   if (!filePath) return fallback;
