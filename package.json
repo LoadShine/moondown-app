@@ -19,7 +19,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^1.16.0",
     "markdown-it": "^14.1.1",
-    "moondown": "^1.0.0",
+    "moondown": "^1.0.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "tippy.js": "^6.3.7"
@@ -35,10 +35,5 @@
     "typescript": "^6.0.3",
     "vite": "^8.0.13"
   },
-  "packageManager": "pnpm@9.6.0",
-  "pnpm": {
-    "patchedDependencies": {
-      "moondown@1.0.0": "patches/moondown@1.0.0.patch"
-    }
-  }
+  "packageManager": "pnpm@9.6.0"
 }

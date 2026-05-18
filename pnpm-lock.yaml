@@ -4,11 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-patchedDependencies:
-  moondown@1.0.0:
-    hash: njwccpfnuydd75rmo2xtl3gboe
-    path: patches/moondown@1.0.0.patch
-
 importers:
 
   .:
@@ -35,8 +30,8 @@ importers:
         specifier: ^14.1.1
         version: 14.1.1
       moondown:
-        specifier: ^1.0.0
-        version: 1.0.0(patch_hash=njwccpfnuydd75rmo2xtl3gboe)
+        specifier: ^1.0.1
+        version: 1.0.1
       react:
         specifier: ^19.2.6
         version: 19.2.6
@@ -1098,8 +1093,8 @@ packages:
   minimalistic-assert@1.0.1:
     resolution: {integrity: sha512-UtJcAD4yEaGtjPezWuO9wC4nwUnVH/8/Im3yEHQP4b67cXlD/Qr9hdITCU1xDbSEXg2XKNaP8jsReV7vQd00/A==}
 
-  moondown@1.0.0:
-    resolution: {integrity: sha512-Ttn89tUhmhQPeOyXSoOWuSiHIvrmqlj0drO3Uf2zfPjhY3m1s4V29C0WgksUaOpw45TTUzQw5umNerXd1VQ7ow==}
+  moondown@1.0.1:
+    resolution: {integrity: sha512-XTrbzs7NSmQmZMb166pqxhVu79WW5CROCMLiSedHktIR+wgSBT5WcBXHXEZV8Y960aOnKjmihlQwkDJs7tFlaA==}
     engines: {node: '>=22.0.0', pnpm: '>=10.0.0'}
 
   nanoid@3.3.12:
@@ -2432,7 +2427,7 @@ snapshots:
 
   minimalistic-assert@1.0.1: {}
 
-  moondown@1.0.0(patch_hash=njwccpfnuydd75rmo2xtl3gboe):
+  moondown@1.0.1:
     dependencies:
       '@codemirror/autocomplete': 6.20.2
       '@codemirror/commands': 6.10.3
