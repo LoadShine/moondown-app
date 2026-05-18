@@ -9,6 +9,8 @@ type EditorTheme = 'light' | 'dark';
 export interface MoondownEditorHandle {
   focus: () => void;
   getValue: () => string;
+  openSearch: () => void;
+  openReplace: () => void;
 }
 
 interface MoondownEditorProps {
@@ -77,6 +79,8 @@ const MoondownEditor = forwardRef<MoondownEditorHandle, MoondownEditorProps>(fun
   useImperativeHandle(ref, () => ({
     focus: () => editorRef.current?.focus(),
     getValue: () => editorRef.current?.getValue() ?? '',
+    openSearch: () => editorRef.current?.openSearch(),
+    openReplace: () => editorRef.current?.openReplace(),
   }), []);
 
   useEffect(() => {

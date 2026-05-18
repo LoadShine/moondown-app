@@ -31,6 +31,7 @@ const fileSource = requireFile('src/lib/fileActions.ts');
 const settingsSource = requireFile('src/lib/settings.ts');
 const markdownSource = requireFile('src/lib/markdown.ts');
 const exportersSource = requireFile('src/lib/exporters.ts');
+const providersSource = requireFile('src/lib/aiProviders.ts');
 const tauriConfig = requireFile('src-tauri/tauri.conf.json');
 const tauriLib = requireFile('src-tauri/src/lib.rs');
 const capabilities = requireFile('src-tauri/capabilities/default.json');
@@ -48,6 +49,11 @@ if (appSource && !appSource.includes('startDragging')) failures.push('App.tsx mu
 if (appSource && !appSource.includes('settings-sheet')) failures.push('App.tsx must expose a settings sheet opened from the menu.');
 if (appSource && !appSource.includes('settings-nav')) failures.push('Settings must use categorized navigation instead of one piled grid.');
 if (appSource && appSource.includes('settings-grid')) failures.push('Settings must not use the old piled settings grid.');
+if (appSource && appSource.includes('onExportFormat')) failures.push('Settings must not expose document export format buttons.');
+if (appSource && appSource.includes('export-grid')) failures.push('Settings must not expose document export controls.');
+if (appSource && !appSource.includes('ProviderPicker')) failures.push('AI settings must expose a built-in provider picker.');
+if (appSource && !appSource.includes('onCloseRequested')) failures.push('App.tsx must intercept native close requests.');
+if (appSource && !appSource.includes('getCurrentWindow().hide')) failures.push('Closing the window must hide it instead of quitting the app.');
 if (appSource && !appSource.includes('folder-tree')) failures.push('App.tsx must support a folder tree view.');
 if (appSource && !appSource.includes('moondown-menu')) failures.push('App.tsx must listen for native menu events.');
 if (appSource && !appSource.includes('exportCurrentDocument')) failures.push('App.tsx must support exporting the current document.');
@@ -76,13 +82,24 @@ for (const format of ['markdown', 'txt', 'html', 'docx', 'jpg', 'epub']) {
     failures.push(`exporters.ts must support ${format} export.`);
   }
 }
+if (providersSource) {
+  const providerCount = Array.from(providersSource.matchAll(/\bid:\s*['"]/g)).length;
+  if (providerCount < 40) failures.push(`AI settings must include at least 40 built-in providers; found ${providerCount}.`);
+  for (const providerName of ['OpenAI', 'DeepSeek', 'Moonshot', 'Ollama', 'LM Studio']) {
+    if (!providersSource.includes(providerName)) failures.push(`AI providers must include ${providerName}.`);
+  }
+}
 if (tauriConfig && !tauriConfig.includes('com.loadshine.moondownapp')) failures.push('Tauri config must use the LoadShine app identifier.');
 if (tauriConfig && !tauriConfig.includes('"hiddenTitle": true')) failures.push('Tauri config must hide the macOS title text.');
 if (tauriLib && !tauriLib.includes('MenuBuilder')) failures.push('Tauri Rust must build a native menu.');
 if (tauriLib && !tauriLib.includes('moondown-menu')) failures.push('Tauri Rust must emit moondown-menu events.');
 if (tauriLib && !tauriLib.includes('allow_fs_path')) failures.push('Tauri Rust must expose runtime fs scope grants for user-selected files and folders.');
+for (const menuId of ['close-window', 'find', 'replace']) {
+  if (tauriLib && !tauriLib.includes(menuId)) failures.push(`Tauri menu must expose ${menuId}.`);
+}
 if (capabilities && !capabilities.includes('fs:allow-read-dir')) failures.push('Tauri capabilities must allow folder reads.');
 if (capabilities && !capabilities.includes('core:window:allow-start-dragging')) failures.push('Tauri capabilities must allow hidden-title dragging.');
+if (capabilities && !capabilities.includes('core:window:allow-hide')) failures.push('Tauri capabilities must allow close-to-hide behavior.');
 if (workflow && !workflow.includes('tauri-apps/tauri-action')) failures.push('GitHub Actions must build Tauri artifacts.');
 if (workflow && workflow.includes('tauri-apps/tauri-action@v1')) failures.push('GitHub Actions must not use nonexistent tauri-action@v1.');
 if (workflow && !workflow.includes('tauri-apps/tauri-action@v0.6.2')) failures.push('GitHub Actions must pin a resolvable tauri-action version.');

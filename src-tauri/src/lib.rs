@@ -1,6 +1,6 @@
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
-    AppHandle, Emitter,
+    AppHandle, Emitter, Manager,
 };
 use tauri_plugin_fs::FsExt;
 
@@ -14,8 +14,17 @@ pub fn run() {
             build_menu(app)?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("failed to run Moondown");
+        .build(tauri::generate_context!())
+        .expect("failed to build Moondown")
+        .run(|app_handle, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        });
 }
 
 #[tauri::command]
@@ -38,6 +47,7 @@ fn build_menu(app: &mut tauri::App) -> tauri::Result<()> {
 
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(&menu_item(app, "new-document", "New", "CmdOrCtrl+N")?)
+        .item(&menu_item(app, "close-window", "Close Window", "CmdOrCtrl+W")?)
         .item(&menu_item(app, "open-file", "Open File...", "CmdOrCtrl+O")?)
         .item(&menu_item(app, "open-folder", "Open Folder...", "CmdOrCtrl+Shift+O")?)
         .separator()
@@ -59,6 +69,10 @@ fn build_menu(app: &mut tauri::App) -> tauri::Result<()> {
         .cut()
         .copy()
         .paste()
+        .separator()
+        .item(&menu_item(app, "find", "Find", "CmdOrCtrl+F")?)
+        .item(&menu_item(app, "replace", "Replace", "CmdOrCtrl+R")?)
+        .separator()
         .select_all()
         .build()?;
 
@@ -102,10 +116,13 @@ fn is_frontend_menu_event(id: &str) -> bool {
         id,
         "settings"
             | "new-document"
+            | "close-window"
             | "open-file"
             | "open-folder"
             | "save"
             | "save-as"
+            | "find"
+            | "replace"
             | "toggle-tree"
             | "toggle-syntax"
             | "theme-system"

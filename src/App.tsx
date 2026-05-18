@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { message } from '@tauri-apps/plugin-dialog';
 import type { AIStreamHandler } from 'moondown';
 import {
   Bot,
@@ -32,6 +33,7 @@ import {
   importSettingsFile,
   type FolderTreeNode,
 } from './lib/fileActions';
+import { AI_PROVIDERS, getAIProvider, type BuiltinAIProvider } from './lib/aiProviders';
 import { exportMarkdown, type ExportFormat, sanitizeExportName } from './lib/exporters';
 import { deriveTitle, getMarkdownMetrics } from './lib/markdown';
 import {
@@ -57,7 +59,10 @@ type MenuAction =
   | 'open-folder'
   | 'save'
   | 'save-as'
+  | 'close-window'
   | 'settings'
+  | 'find'
+  | 'replace'
   | 'toggle-tree'
   | 'toggle-syntax'
   | 'theme-system'
@@ -92,6 +97,7 @@ const copy = {
     autosave: 'Restore draft on launch',
     aiEnabled: 'Enable AI assist',
     provider: 'Provider',
+    chooseProvider: 'Choose provider',
     baseUrl: 'Base URL',
     model: 'Model',
     apiKey: 'API key',
@@ -138,6 +144,7 @@ const copy = {
     autosave: '启动时恢复草稿',
     aiEnabled: '启用 AI 辅助',
     provider: '服务商',
+    chooseProvider: '选择服务商',
     baseUrl: 'Base URL',
     model: '模型',
     apiKey: 'API Key',
@@ -276,7 +283,7 @@ export default function App() {
     }
   }, []);
 
-  const saveCurrentDocument = useCallback(async (forceSaveAs = false) => {
+  const saveCurrentDocument = useCallback(async (forceSaveAs = false): Promise<boolean> => {
     try {
       const filePath = await saveMarkdownFile({
         content: documentState.content,
@@ -287,14 +294,49 @@ export default function App() {
       });
       if (filePath === null && isDesktopRuntime()) {
         setNotice('Save cancelled');
-        return;
+        return false;
       }
       setDocumentState((current) => ({ ...current, filePath: filePath ?? current.filePath, dirty: false, updatedAt: Date.now() }));
       setNotice('Saved');
+      return true;
     } catch (error) {
       setNotice(messageFromError(error));
+      return false;
     }
   }, [documentState.content, documentState.filePath, settings.defaultSavePath, title]);
+
+  const closeWindow = useCallback(async () => {
+    if (documentState.dirty) {
+      const saveLabel = settings.language === 'zh-CN' ? '保存' : 'Save';
+      const discardLabel = settings.language === 'zh-CN' ? '不保存' : "Don't Save";
+      const cancelLabel = settings.language === 'zh-CN' ? '取消' : 'Cancel';
+      const result = isDesktopRuntime()
+        ? await message(
+          settings.language === 'zh-CN'
+            ? '关闭前要保存当前文档吗？'
+            : 'Save the current document before closing?',
+          {
+            title: 'Moondown',
+            kind: 'warning',
+            buttons: { yes: saveLabel, no: discardLabel, cancel: cancelLabel },
+          },
+        )
+        : window.confirm(settings.language === 'zh-CN' ? '关闭前要保存当前文档吗？' : 'Save the current document before closing?')
+          ? saveLabel
+          : cancelLabel;
+
+      if (result === saveLabel || result === 'Yes') {
+        const saved = await saveCurrentDocument(false);
+        if (!saved) return;
+      } else if (result !== discardLabel && result !== 'No') {
+        return;
+      }
+    }
+
+    if (isDesktopRuntime()) {
+      await getCurrentWindow().hide();
+    }
+  }, [documentState.dirty, saveCurrentDocument, settings.language]);
 
   const exportCurrentDocument = useCallback(async (format: ExportFormat) => {
     try {
@@ -317,7 +359,10 @@ export default function App() {
     else if (action === 'open-folder') void loadFolder();
     else if (action === 'save') void saveCurrentDocument(false);
     else if (action === 'save-as') void saveCurrentDocument(true);
+    else if (action === 'close-window') void closeWindow();
     else if (action === 'settings') setSettingsOpen(true);
+    else if (action === 'find') editorRef.current?.openSearch();
+    else if (action === 'replace') editorRef.current?.openReplace();
     else if (action === 'toggle-tree') setFolderTreeVisible((visible) => !visible);
     else if (action === 'toggle-syntax') updateSettings({ hideMarkdownSyntax: !settings.hideMarkdownSyntax });
     else if (action === 'theme-system' || action === 'theme-light' || action === 'theme-dark') {
@@ -331,6 +376,7 @@ export default function App() {
     loadFolder,
     openFile,
     saveCurrentDocument,
+    closeWindow,
     settings.hideMarkdownSyntax,
     updateSettings,
   ]);
@@ -366,16 +412,39 @@ export default function App() {
       } else if (key === 's') {
         event.preventDefault();
         void saveCurrentDocument(event.shiftKey);
+      } else if (key === 'f' && !event.altKey) {
+        event.preventDefault();
+        editorRef.current?.openSearch();
+      } else if (key === 'r' && !event.altKey) {
+        event.preventDefault();
+        editorRef.current?.openReplace();
+      } else if (key === 'w' && !event.altKey) {
+        event.preventDefault();
+        void closeWindow();
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [createDocument, loadFolder, openFile, saveCurrentDocument]);
+  }, [closeWindow, createDocument, loadFolder, openFile, saveCurrentDocument]);
+
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWindow().onCloseRequested(async (event) => {
+      event.preventDefault();
+      await closeWindow();
+    }).then((cleanup) => {
+      unlisten = cleanup;
+    });
+    return () => unlisten?.();
+  }, [closeWindow]);
 
   const aiStreamHandler = useMemo<AIStreamHandler>(() => {
     return (systemPrompt, userPrompt, signal) => {
-      if (!settings.aiEnabled || !settings.aiApiKey || !settings.aiBaseUrl || !settings.aiModel) {
+      const provider = getAIProvider(settings.aiProvider);
+      const missingKey = provider.authMode !== 'none' && !settings.aiApiKey;
+      if (!settings.aiEnabled || missingKey || !settings.aiBaseUrl || !settings.aiModel) {
         setSettingsOpen(true);
         return emptyAIStream();
       }
@@ -426,7 +495,6 @@ export default function App() {
           }}
           onOpenFile={() => void openFile()}
           onOpenFolder={() => void loadFolder()}
-          onExportFormat={(format) => void exportCurrentDocument(format)}
           onChooseDefaultSavePath={async () => {
             const path = await chooseDirectory();
             if (path) updateSettings({ defaultSavePath: path });
@@ -514,7 +582,6 @@ function SettingsSheet({
   onClose,
   onOpenFile,
   onOpenFolder,
-  onExportFormat,
   onChooseDefaultSavePath,
   onChooseStartupFolder,
   onImportSettings,
@@ -527,7 +594,6 @@ function SettingsSheet({
   onClose: () => void;
   onOpenFile: () => void;
   onOpenFolder: () => void;
-  onExportFormat: (format: ExportFormat) => void;
   onChooseDefaultSavePath: () => void;
   onChooseStartupFolder: () => void;
   onImportSettings: () => void;
@@ -650,7 +716,17 @@ function SettingsSheet({
             {activeSection === 'ai' && (
               <div className="preference-group">
                 <Toggle label={labels.aiEnabled} checked={settings.aiEnabled} onChange={(checked) => onChange({ aiEnabled: checked })} />
-                <TextControl label={labels.provider} value={settings.aiProvider} onChange={(value) => onChange({ aiProvider: value })} />
+                <ProviderPicker
+                  label={labels.chooseProvider}
+                  providers={AI_PROVIDERS}
+                  selectedId={settings.aiProvider}
+                  onSelect={(provider) => onChange({
+                    aiEnabled: true,
+                    aiProvider: provider.id,
+                    aiBaseUrl: provider.baseUrl,
+                    aiModel: provider.defaultModel,
+                  })}
+                />
                 <TextControl label={labels.baseUrl} value={settings.aiBaseUrl} onChange={(value) => onChange({ aiBaseUrl: value })} />
                 <TextControl label={labels.model} value={settings.aiModel} onChange={(value) => onChange({ aiModel: value })} />
                 <TextControl label={labels.apiKey} type="password" value={settings.aiApiKey} onChange={(value) => onChange({ aiApiKey: value })} />
@@ -659,16 +735,6 @@ function SettingsSheet({
 
             {activeSection === 'importExport' && (
               <div className="preference-group">
-                <FieldRow label={labels.exportAs}>
-                  <div className="export-grid">
-                    <button type="button" onClick={() => onExportFormat('markdown')}>{labels.exportMarkdown}</button>
-                    <button type="button" onClick={() => onExportFormat('txt')}>{labels.exportText}</button>
-                    <button type="button" onClick={() => onExportFormat('html')}>{labels.exportHtml}</button>
-                    <button type="button" onClick={() => onExportFormat('docx')}>{labels.exportWord}</button>
-                    <button type="button" onClick={() => onExportFormat('jpg')}>{labels.exportImage}</button>
-                    <button type="button" onClick={() => onExportFormat('epub')}>{labels.exportEpub}</button>
-                  </div>
-                </FieldRow>
                 <div className="settings-action-grid">
                   <button type="button" onClick={onImportSettings}><Upload size={15} />{labels.importSettings}</button>
                   <button type="button" onClick={onExportSettings}><Download size={15} />{labels.exportSettings}</button>
@@ -687,6 +753,47 @@ function SettingsSheet({
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+function ProviderPicker({
+  label,
+  providers,
+  selectedId,
+  onSelect,
+}: {
+  label: string;
+  providers: BuiltinAIProvider[];
+  selectedId: string;
+  onSelect: (provider: BuiltinAIProvider) => void;
+}) {
+  const selectedProvider = getAIProvider(selectedId);
+
+  return (
+    <div className="settings-row provider-picker-row">
+      <span>{label}</span>
+      <div className="provider-picker">
+        <div className="provider-current">
+          <strong>{selectedProvider.name}</strong>
+          <span>{selectedProvider.defaultModel}</span>
+        </div>
+        <div className="provider-grid" role="listbox" aria-label={label}>
+          {providers.map((provider) => (
+            <button
+              key={provider.id}
+              type="button"
+              role="option"
+              aria-selected={provider.id === selectedProvider.id}
+              className={provider.id === selectedProvider.id ? 'selected' : ''}
+              onClick={() => onSelect(provider)}
+            >
+              <span>{provider.name}</span>
+              <small>{provider.region}</small>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -860,17 +967,25 @@ async function requestAIStream(
   userPrompt: string,
   signal: AbortSignal,
 ): Promise<ReadableStream<string>> {
-  if (!settings.aiApiKey || !settings.aiBaseUrl || !settings.aiModel) {
+  const provider = getAIProvider(settings.aiProvider);
+  if ((provider.authMode !== 'none' && !settings.aiApiKey) || !settings.aiBaseUrl || !settings.aiModel) {
     throw new Error('AI settings are incomplete.');
+  }
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+  };
+  if (provider.authMode === 'bearer') {
+    headers.authorization = `Bearer ${settings.aiApiKey}`;
+  } else if (provider.authMode === 'api-key') {
+    headers['api-key'] = settings.aiApiKey;
+  } else if (provider.authMode === 'x-api-key') {
+    headers['x-api-key'] = settings.aiApiKey;
   }
 
   const response = await fetch(settings.aiBaseUrl, {
     method: 'POST',
     signal,
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${settings.aiApiKey}`,
-    },
+    headers,
     body: JSON.stringify({
       model: settings.aiModel,
       stream: true,
