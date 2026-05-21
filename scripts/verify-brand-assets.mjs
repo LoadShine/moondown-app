@@ -33,7 +33,7 @@ function pngRows(buffer, width, height) {
   return Array.from({ length: height }, (_, row) => raw.subarray(row * rowLength, (row + 1) * rowLength));
 }
 
-function checkPng(relativePath, width, height, cornerRgb) {
+function checkPng(relativePath, width, height, cornerExpectation) {
   const buffer = readFile(relativePath);
   if (!buffer) return;
   if (buffer.toString('ascii', 1, 4) !== 'PNG') {
@@ -45,10 +45,15 @@ function checkPng(relativePath, width, height, cornerRgb) {
   if (actualWidth !== width || actualHeight !== height) {
     fail(`${relativePath} expected ${width}x${height}, got ${actualWidth}x${actualHeight}`);
   }
-  if (!cornerRgb || buffer[24] !== 8 || buffer[25] !== 6) return;
-  const firstPixel = pngRows(buffer, actualWidth, actualHeight)[0].subarray(1, 4);
-  if (!cornerRgb.every((value, index) => firstPixel[index] === value)) {
-    fail(`${relativePath} corner expected rgb(${cornerRgb.join(', ')}), got rgb(${[...firstPixel].join(', ')})`);
+  if (!cornerExpectation || buffer[24] !== 8 || buffer[25] !== 6) return;
+  const firstPixel = pngRows(buffer, actualWidth, actualHeight)[0].subarray(1, 5);
+  const expected =
+    Array.isArray(cornerExpectation) ? { rgb: cornerExpectation } : cornerExpectation;
+  if (expected.rgb && !expected.rgb.every((value, index) => firstPixel[index] === value)) {
+    fail(`${relativePath} corner expected rgb(${expected.rgb.join(', ')}), got rgb(${[...firstPixel.subarray(0, 3)].join(', ')})`);
+  }
+  if (typeof expected.alpha === 'number' && firstPixel[3] !== expected.alpha) {
+    fail(`${relativePath} corner expected alpha ${expected.alpha}, got ${firstPixel[3]}`);
   }
 }
 
@@ -71,7 +76,7 @@ function checkIcns(relativePath) {
 checkPng('assets/platform/web/favicon-32.png', 32, 32, LIGHT_BG);
 checkPng('assets/platform/web/apple-touch-icon.png', 180, 180, LIGHT_BG);
 checkPng('assets/platform/linux/icon.png', 512, 512, LIGHT_BG);
-checkPng('assets/platform/macos/icon.png', 1024, 1024, LIGHT_BG);
+checkPng('assets/platform/macos/icon.png', 1024, 1024, { alpha: 0 });
 checkIco('assets/platform/windows/icon.ico');
 checkIcns('assets/platform/macos/icon.icns');
 checkPng('src-tauri/icons/32x32.png', 32, 32, LIGHT_BG);

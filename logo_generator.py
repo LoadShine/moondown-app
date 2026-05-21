@@ -224,6 +224,30 @@ def _icon_with_bg(master_icon, size, bg):
     canvas.paste(scaled, (0, 0), scaled)
     return canvas
 
+def _macos_icon_with_bg(master_icon, size, bg, content_scale=0.76):
+    oversample = 4
+    canvas_size = size * oversample
+    canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+
+    mask = Image.new("L", (canvas_size, canvas_size), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle(
+        [0, 0, canvas_size - 1, canvas_size - 1],
+        radius=int(canvas_size * 0.225),
+        fill=255,
+    )
+
+    tile = Image.new("RGBA", (canvas_size, canvas_size), (*bg, 255))
+    tile.putalpha(mask)
+    canvas.alpha_composite(tile)
+
+    logo_size = int(canvas_size * content_scale)
+    logo = master_icon.resize((logo_size, logo_size), Image.LANCZOS)
+    offset = ((canvas_size - logo_size) // 2, (canvas_size - logo_size) // 2)
+    canvas.alpha_composite(logo, offset)
+
+    return canvas.resize((size, size), Image.LANCZOS)
+
 def _transparent_icon(master_icon, size):
     return master_icon.resize((size, size), Image.LANCZOS)
 
@@ -249,12 +273,12 @@ def _save_icns(master_icon, output_path, bg):
             ("icon_512x512.png", 512),
             ("icon_512x512@2x.png", 1024),
         ]:
-            _icon_with_bg(master_icon, size, bg).save(iconset / filename)
+            _macos_icon_with_bg(master_icon, size, bg).save(iconset / filename)
 
         if shutil.which("iconutil"):
             subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(output_path)], check=True)
         else:
-            _icon_with_bg(master_icon, 1024, bg).save(output_path, format="ICNS")
+            _macos_icon_with_bg(master_icon, 1024, bg).save(output_path, format="ICNS")
 
 def _save_platform_assets(master_icon, master_full, bg):
     for directory in [
@@ -269,7 +293,7 @@ def _save_platform_assets(master_icon, master_full, bg):
     _icon_with_bg(master_icon, 180, bg).save(PLATFORM_DIR / "web/apple-touch-icon.png")
     _icon_with_bg(master_icon, 512, bg).save(PLATFORM_DIR / "web/icon-512.png")
     _icon_with_bg(master_icon, 512, bg).save(PLATFORM_DIR / "linux/icon.png")
-    _icon_with_bg(master_icon, 1024, bg).save(PLATFORM_DIR / "macos/icon.png")
+    _macos_icon_with_bg(master_icon, 1024, bg).save(PLATFORM_DIR / "macos/icon.png")
     _save_ico(master_icon, PLATFORM_DIR / "windows/icon.ico", bg)
     _save_icns(master_icon, PLATFORM_DIR / "macos/icon.icns", bg)
 
