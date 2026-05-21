@@ -96,8 +96,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Moondown v__VERSION__"
-          releaseBody: "Cross-platform Moondown desktop builds."
-          releaseDraft: true
+          releaseName: "Moondown ${{ github.ref_name }}"
+          releaseBody: "Cross-platform Moondown desktop builds for ${{ github.ref_name }}."
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
