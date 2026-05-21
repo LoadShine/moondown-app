@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 400">
+  <defs>
+    <style>@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@600&amp;display=swap');</style>
+    <mask id="moon_mask">
+      <circle cx="200" cy="188" r="120" fill="white"/>
+      <circle cx="277.78" cy="110.22" r="75" fill="black"/>
+      <polygon points="314.80,181.14 339.75,179.65 328.18,157.49 303.23,158.98" fill="black"/><polygon points="206.86,73.20 208.35,48.25 230.51,59.82 229.02,84.77" fill="black"/>
+      <circle cx="314.80" cy="181.14" r="5" fill="white"/>
+      <circle cx="206.86" cy="73.20" r="5" fill="white"/>
+    </mask>
+  </defs>
+  <rect width="100%" height="100%" fill="#f7f7f5"/>
+  <g id="logo_icon">
+    <circle cx="200" cy="188" r="120" fill="#111827" mask="url(#moon_mask)"/>
+    <rect x="158.0" y="336" width="84" height="10" rx="5.0" fill="#1d4ed8"/>
+  </g>
+  <text x="440" y="280.00" font-family="'Quicksand', sans-serif" font-weight="600" font-size="220" fill="#111827">moondown</text>
+</svg>
