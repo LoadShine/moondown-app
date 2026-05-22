@@ -53,6 +53,7 @@ const settingsSource = requireFile('src/lib/settings.ts');
 const markdownSource = requireFile('src/lib/markdown.ts');
 const exportersSource = requireFile('src/lib/exporters.ts');
 const providersSource = requireFile('src/lib/aiProviders.ts');
+const stylesSource = requireFile('src/styles.css');
 const tauriConfig = requireFile('src-tauri/tauri.conf.json');
 const tauriLib = requireFile('src-tauri/src/lib.rs');
 const capabilities = requireFile('src-tauri/capabilities/default.json');
@@ -99,6 +100,21 @@ if (editorSource && (!editorSource.includes("from 'moondown'") && !editorSource.
 if (editorSource && !editorSource.includes('moondown/style.css')) failures.push('MoondownEditor.tsx must load moondown/style.css.');
 if (editorSource && !editorSource.includes('focusOnMount')) failures.push('MoondownEditor.tsx must focus the blank editor on launch.');
 if (editorSource && !editorSource.includes('toggleSyntaxHiding')) failures.push('MoondownEditor.tsx must support hiding markdown markers.');
+if (appSource && !appSource.includes('wordWrap={settings.wordWrap}')) {
+  failures.push('App.tsx must pass the word wrap setting into MoondownEditor.');
+}
+if (appSource && !appSource.includes('spellcheck={settings.spellcheck}')) {
+  failures.push('App.tsx must pass the spellcheck setting into MoondownEditor.');
+}
+if (editorSource && !editorSource.includes('wordWrap: boolean')) {
+  failures.push('MoondownEditor.tsx must accept a wordWrap prop.');
+}
+if (editorSource && !editorSource.includes('spellcheck: boolean')) {
+  failures.push('MoondownEditor.tsx must accept a spellcheck prop.');
+}
+if (editorSource && editorSource.includes('spellCheck={false}')) {
+  failures.push('MoondownEditor.tsx must not hard-code spellcheck off.');
+}
 if (editorSource && !editorSource.includes('installMoondownInteractionFixes')) {
   failures.push('MoondownEditor.tsx must install interaction fixes for table cell focus and controls.');
 }
@@ -113,6 +129,12 @@ if (settingsSource && !settingsSource.includes('defaultSavePath')) failures.push
 if (settingsSource && !settingsSource.includes('startupFolderPath')) failures.push('settings.ts must persist a startup folder.');
 if (settingsSource && !settingsSource.includes('aiProvider')) failures.push('settings.ts must persist AI configuration.');
 if (settingsSource && !settingsSource.includes('hideMarkdownSyntax')) failures.push('settings.ts must persist markdown marker visibility.');
+if (stylesSource && !/\.switch-control\s+span\s*\{[^}]*pointer-events:\s*none/s.test(stylesSource)) {
+  failures.push('Switch decoration spans must not intercept checkbox pointer events.');
+}
+if (stylesSource && !stylesSource.includes('.moondown-editor.word-wrap-off')) {
+  failures.push('styles.css must define a no-wrap editor mode for the word wrap setting.');
+}
 if (markdownSource && !markdownSource.includes('getMarkdownMetrics')) failures.push('markdown.ts must expose document metrics.');
 for (const format of ['markdown', 'txt', 'html', 'docx', 'jpg', 'epub']) {
   if (exportersSource && !exportersSource.includes(`'${format}'`) && !exportersSource.includes(`"${format}"`)) {
@@ -127,6 +149,12 @@ if (providersSource) {
   }
 }
 if (tauriConfig && !tauriConfig.includes('com.loadshine.moondownapp')) failures.push('Tauri config must use the LoadShine app identifier.');
+if (tauriConfig && !tauriConfig.includes(`"version": "${packageJson.version}"`)) {
+  failures.push('Tauri config version must match package.json.');
+}
+if (tauriLib && !requireFile('src-tauri/Cargo.toml').includes(`version = "${packageJson.version}"`)) {
+  failures.push('Cargo.toml package version must match package.json.');
+}
 if (tauriConfig && !tauriConfig.includes('"hiddenTitle": true')) failures.push('Tauri config must hide the macOS title text.');
 if (tauriConfig && !tauriConfig.includes('fileAssociations')) failures.push('Tauri config must register Markdown file associations.');
 if (tauriConfig && !tauriConfig.includes('"md"')) failures.push('Tauri file associations must include .md files.');

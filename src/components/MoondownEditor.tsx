@@ -22,6 +22,8 @@ interface MoondownEditorProps {
   placeholder?: string;
   readOnly?: boolean;
   hideMarkdownSyntax: boolean;
+  wordWrap: boolean;
+  spellcheck: boolean;
   focusOnMount?: boolean;
   onAIStream?: AIStreamHandler;
   onSearchShortcut?: () => void;
@@ -37,6 +39,8 @@ const MoondownEditor = forwardRef<MoondownEditorHandle, MoondownEditorProps>(fun
     placeholder = '',
     readOnly = false,
     hideMarkdownSyntax,
+    wordWrap,
+    spellcheck,
     focusOnMount = false,
     onAIStream,
     onSearchShortcut,
@@ -174,6 +178,22 @@ const MoondownEditor = forwardRef<MoondownEditorHandle, MoondownEditorProps>(fun
   }, [hideMarkdownSyntax]);
 
   useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+
+    const applySpellcheck = () => {
+      host.querySelectorAll<HTMLElement>('.cm-content').forEach((content) => {
+        content.setAttribute('spellcheck', spellcheck ? 'true' : 'false');
+      });
+    };
+
+    applySpellcheck();
+    const observer = new MutationObserver(applySpellcheck);
+    observer.observe(host, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [spellcheck]);
+
+  useEffect(() => {
     editorRef.current?.setTranslations(translations);
   }, [translations]);
 
@@ -193,7 +213,13 @@ const MoondownEditor = forwardRef<MoondownEditorHandle, MoondownEditorProps>(fun
     editor.setValue(value);
   }, [value]);
 
-  return <div ref={hostRef} className="moondown-editor" spellCheck={false} />;
+  return (
+    <div
+      ref={hostRef}
+      className={`moondown-editor ${wordWrap ? 'word-wrap-on' : 'word-wrap-off'}`}
+      spellCheck={spellcheck}
+    />
+  );
 });
 
 export default MoondownEditor;

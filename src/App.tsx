@@ -663,6 +663,8 @@ export default function App() {
           locale={settings.language}
           placeholder=""
           hideMarkdownSyntax={settings.hideMarkdownSyntax}
+          wordWrap={settings.wordWrap}
+          spellcheck={settings.spellcheck}
           focusOnMount
           onAIStream={aiStreamHandler}
           onSearchShortcut={() => openSearchPanel('find')}

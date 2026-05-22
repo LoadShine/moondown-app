@@ -424,6 +424,15 @@ button {
   padding: 0;
 }
 
+.moondown-editor.word-wrap-off .cm-content {
+  width: max-content;
+  min-width: min(100%, var(--editor-line-width));
+}
+
+.moondown-editor.word-wrap-off .cm-line {
+  white-space: pre !important;
+}
+
 .moondown-editor .cm-cursor {
   border-left-color: var(--accent);
 }
@@ -754,6 +763,7 @@ button {
   inset: 0;
   margin: 0;
   opacity: 0;
+  cursor: pointer;
 }
 
 .switch-control span {
@@ -761,6 +771,7 @@ button {
   inset: 0;
   border-radius: 999px;
   background: var(--line);
+  pointer-events: none;
   transition: background 0.16s ease;
 }
 
