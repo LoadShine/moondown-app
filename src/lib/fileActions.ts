@@ -84,6 +84,12 @@ export async function openFileAtPath(filePath: string): Promise<OpenedMarkdownFi
   return { content, filePath, name: titleFromPath(filePath) };
 }
 
+export async function openSystemMarkdownFile(urlOrPath: string): Promise<OpenedMarkdownFile | null> {
+  const filePath = pathFromFileUrl(urlOrPath);
+  if (!filePath || !isMarkdownFile(filePath)) return null;
+  return openFileAtPath(filePath);
+}
+
 export async function saveMarkdownFile(input: SaveMarkdownInput): Promise<string | null> {
   if (!isDesktopRuntime()) {
     return saveBlobInBrowser(new Blob([input.content], { type: 'text/markdown;charset=utf-8' }), input.suggestedName);
@@ -232,6 +238,23 @@ function ensureExtension(name: string, extension: string): string {
 
 function isMarkdownFile(name: string): boolean {
   return /\.(md|markdown|mdown|mkd|txt)$/i.test(name);
+}
+
+function pathFromFileUrl(urlOrPath: string): string | null {
+  const trimmed = urlOrPath.trim();
+  if (!trimmed) return null;
+
+  if (!trimmed.startsWith('file://')) return trimmed;
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'file:') return null;
+    const decodedPath = decodeURIComponent(url.pathname);
+    if (/^\/[A-Za-z]:/.test(decodedPath)) return decodedPath.slice(1);
+    return decodedPath;
+  } catch {
+    return null;
+  }
 }
 
 const openInBrowser = (): Promise<OpenedMarkdownFile | null> =>

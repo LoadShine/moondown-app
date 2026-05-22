@@ -19,7 +19,7 @@ function readFile(relativePath) {
   return fs.readFileSync(absolutePath);
 }
 
-function pngRows(buffer, width, height) {
+function readPngRgba(buffer, width, height) {
   const chunks = [];
   let offset = 8;
   while (offset < buffer.length) {
@@ -28,9 +28,43 @@ function pngRows(buffer, width, height) {
     if (type === 'IDAT') chunks.push(buffer.subarray(offset + 8, offset + 8 + length));
     offset += 12 + length;
   }
-  const raw = zlib.inflateSync(Buffer.concat(chunks));
-  const rowLength = 1 + width * 4;
-  return Array.from({ length: height }, (_, row) => raw.subarray(row * rowLength, (row + 1) * rowLength));
+  const inflated = zlib.inflateSync(Buffer.concat(chunks));
+  const bytesPerPixel = 4;
+  const rowLength = width * bytesPerPixel;
+  const output = Buffer.alloc(rowLength * height);
+  let inputOffset = 0;
+  let previous = Buffer.alloc(rowLength);
+
+  for (let y = 0; y < height; y += 1) {
+    const filter = inflated[inputOffset];
+    inputOffset += 1;
+    const row = Buffer.alloc(rowLength);
+    for (let x = 0; x < rowLength; x += 1) {
+      const raw = inflated[inputOffset + x];
+      const left = x >= bytesPerPixel ? row[x - bytesPerPixel] : 0;
+      const up = previous[x];
+      const upLeft = x >= bytesPerPixel ? previous[x - bytesPerPixel] : 0;
+      let predictor = 0;
+      if (filter === 1) predictor = left;
+      else if (filter === 2) predictor = up;
+      else if (filter === 3) predictor = Math.floor((left + up) / 2);
+      else if (filter === 4) {
+        const p = left + up - upLeft;
+        const pa = Math.abs(p - left);
+        const pb = Math.abs(p - up);
+        const pc = Math.abs(p - upLeft);
+        predictor = pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft;
+      } else if (filter !== 0) {
+        fail(`Unsupported PNG filter ${filter}`);
+      }
+      row[x] = (raw + predictor) & 0xff;
+    }
+    row.copy(output, y * rowLength);
+    previous = row;
+    inputOffset += rowLength;
+  }
+
+  return output;
 }
 
 function checkPng(relativePath, width, height, cornerExpectation) {
@@ -46,7 +80,8 @@ function checkPng(relativePath, width, height, cornerExpectation) {
     fail(`${relativePath} expected ${width}x${height}, got ${actualWidth}x${actualHeight}`);
   }
   if (!cornerExpectation || buffer[24] !== 8 || buffer[25] !== 6) return;
-  const firstPixel = pngRows(buffer, actualWidth, actualHeight)[0].subarray(1, 5);
+  const pixels = readPngRgba(buffer, actualWidth, actualHeight);
+  const firstPixel = pixels.subarray(0, 4);
   const expected =
     Array.isArray(cornerExpectation) ? { rgb: cornerExpectation } : cornerExpectation;
   if (expected.rgb && !expected.rgb.every((value, index) => firstPixel[index] === value)) {
@@ -54,6 +89,33 @@ function checkPng(relativePath, width, height, cornerExpectation) {
   }
   if (typeof expected.alpha === 'number' && firstPixel[3] !== expected.alpha) {
     fail(`${relativePath} corner expected alpha ${expected.alpha}, got ${firstPixel[3]}`);
+  }
+  if (typeof expected.minAlphaCoverage === 'number' || typeof expected.maxAlphaCoverage === 'number') {
+    const alphaThreshold = expected.alphaThreshold ?? 16;
+    let minX = actualWidth;
+    let minY = actualHeight;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < actualHeight; y += 1) {
+      for (let x = 0; x < actualWidth; x += 1) {
+        if (pixels[(y * actualWidth + x) * 4 + 3] <= alphaThreshold) continue;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    if (maxX < 0 || maxY < 0) {
+      fail(`${relativePath} has no visible alpha bounds`);
+    } else {
+      const coverage = Math.max((maxX - minX + 1) / actualWidth, (maxY - minY + 1) / actualHeight);
+      if (typeof expected.minAlphaCoverage === 'number' && coverage < expected.minAlphaCoverage) {
+        fail(`${relativePath} alpha coverage ${coverage.toFixed(3)} is below ${expected.minAlphaCoverage}`);
+      }
+      if (typeof expected.maxAlphaCoverage === 'number' && coverage > expected.maxAlphaCoverage) {
+        fail(`${relativePath} alpha coverage ${coverage.toFixed(3)} is above ${expected.maxAlphaCoverage}`);
+      }
+    }
   }
 }
 
@@ -75,14 +137,31 @@ function checkIcns(relativePath) {
 
 checkPng('assets/platform/web/favicon-32.png', 32, 32, LIGHT_BG);
 checkPng('assets/platform/web/apple-touch-icon.png', 180, 180, LIGHT_BG);
-checkPng('assets/platform/linux/icon.png', 512, 512, LIGHT_BG);
-checkPng('assets/platform/macos/icon.png', 1024, 1024, { alpha: 0 });
+const DESKTOP_ICON = { alpha: 0, alphaThreshold: 16, minAlphaCoverage: 0.78, maxAlphaCoverage: 0.9 };
+const WINDOWS_TILES = {
+  'Square30x30Logo.png': 30,
+  'Square44x44Logo.png': 44,
+  'StoreLogo.png': 50,
+  'Square71x71Logo.png': 71,
+  'Square89x89Logo.png': 89,
+  'Square107x107Logo.png': 107,
+  'Square142x142Logo.png': 142,
+  'Square150x150Logo.png': 150,
+  'Square284x284Logo.png': 284,
+  'Square310x310Logo.png': 310,
+};
+
+checkPng('assets/platform/linux/icon.png', 512, 512, DESKTOP_ICON);
+checkPng('assets/platform/macos/icon.png', 1024, 1024, DESKTOP_ICON);
 checkIco('assets/platform/windows/icon.ico');
 checkIcns('assets/platform/macos/icon.icns');
-checkPng('src-tauri/icons/32x32.png', 32, 32, LIGHT_BG);
-checkPng('src-tauri/icons/128x128.png', 128, 128, LIGHT_BG);
-checkPng('src-tauri/icons/128x128@2x.png', 256, 256, LIGHT_BG);
-checkPng('src-tauri/icons/icon.png', 512, 512, LIGHT_BG);
+checkPng('src-tauri/icons/32x32.png', 32, 32, DESKTOP_ICON);
+checkPng('src-tauri/icons/128x128.png', 128, 128, DESKTOP_ICON);
+checkPng('src-tauri/icons/128x128@2x.png', 256, 256, DESKTOP_ICON);
+checkPng('src-tauri/icons/icon.png', 512, 512, DESKTOP_ICON);
+for (const [filename, size] of Object.entries(WINDOWS_TILES)) {
+  checkPng(`src-tauri/icons/${filename}`, size, size, DESKTOP_ICON);
+}
 checkIco('src-tauri/icons/icon.ico');
 checkIcns('src-tauri/icons/icon.icns');
 

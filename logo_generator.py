@@ -50,6 +50,23 @@ THEMES = {
     }
 }
 
+DESKTOP_PLATE_SCALE = 0.82
+DESKTOP_CONTENT_SCALE = 0.9
+DESKTOP_PLATE_Y_OFFSET = 0.01
+
+WINDOWS_TILE_SIZES = {
+    "Square30x30Logo.png": 30,
+    "Square44x44Logo.png": 44,
+    "StoreLogo.png": 50,
+    "Square71x71Logo.png": 71,
+    "Square89x89Logo.png": 89,
+    "Square107x107Logo.png": 107,
+    "Square142x142Logo.png": 142,
+    "Square150x150Logo.png": 150,
+    "Square284x284Logo.png": 284,
+    "Square310x310Logo.png": 310,
+}
+
 # 导出尺寸矩阵
 EXPORT_TARGETS = {
     "Web_Favicon": (32, 32),
@@ -224,16 +241,21 @@ def _icon_with_bg(master_icon, size, bg):
     canvas.paste(scaled, (0, 0), scaled)
     return canvas
 
-def _macos_icon_with_bg(master_icon, size, bg, content_scale=0.76):
+def _desktop_icon_with_bg(master_icon, size, bg):
     oversample = 4
     canvas_size = size * oversample
     canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
 
+    plate_size = int(canvas_size * DESKTOP_PLATE_SCALE)
+    plate_x = (canvas_size - plate_size) // 2
+    plate_y = int((canvas_size - plate_size) // 2 + canvas_size * DESKTOP_PLATE_Y_OFFSET)
+    plate_y = max(0, min(canvas_size - plate_size, plate_y))
+
     mask = Image.new("L", (canvas_size, canvas_size), 0)
     draw = ImageDraw.Draw(mask)
     draw.rounded_rectangle(
-        [0, 0, canvas_size - 1, canvas_size - 1],
-        radius=int(canvas_size * 0.225),
+        [plate_x, plate_y, plate_x + plate_size - 1, plate_y + plate_size - 1],
+        radius=int(plate_size * 0.225),
         fill=255,
     )
 
@@ -241,9 +263,9 @@ def _macos_icon_with_bg(master_icon, size, bg, content_scale=0.76):
     tile.putalpha(mask)
     canvas.alpha_composite(tile)
 
-    logo_size = int(canvas_size * content_scale)
+    logo_size = int(plate_size * DESKTOP_CONTENT_SCALE)
     logo = master_icon.resize((logo_size, logo_size), Image.LANCZOS)
-    offset = ((canvas_size - logo_size) // 2, (canvas_size - logo_size) // 2)
+    offset = (plate_x + (plate_size - logo_size) // 2, plate_y + (plate_size - logo_size) // 2)
     canvas.alpha_composite(logo, offset)
 
     return canvas.resize((size, size), Image.LANCZOS)
@@ -253,7 +275,7 @@ def _transparent_icon(master_icon, size):
 
 def _save_ico(master_icon, output_path, bg):
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    icon = _icon_with_bg(master_icon, 256, bg)
+    icon = _desktop_icon_with_bg(master_icon, 256, bg)
     icon.save(output_path, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 
 def _save_icns(master_icon, output_path, bg):
@@ -273,12 +295,12 @@ def _save_icns(master_icon, output_path, bg):
             ("icon_512x512.png", 512),
             ("icon_512x512@2x.png", 1024),
         ]:
-            _macos_icon_with_bg(master_icon, size, bg).save(iconset / filename)
+            _desktop_icon_with_bg(master_icon, size, bg).save(iconset / filename)
 
         if shutil.which("iconutil"):
             subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(output_path)], check=True)
         else:
-            _macos_icon_with_bg(master_icon, 1024, bg).save(output_path, format="ICNS")
+            _desktop_icon_with_bg(master_icon, 1024, bg).save(output_path, format="ICNS")
 
 def _save_platform_assets(master_icon, master_full, bg):
     for directory in [
@@ -292,8 +314,8 @@ def _save_platform_assets(master_icon, master_full, bg):
     _icon_with_bg(master_icon, 32, bg).save(PLATFORM_DIR / "web/favicon-32.png")
     _icon_with_bg(master_icon, 180, bg).save(PLATFORM_DIR / "web/apple-touch-icon.png")
     _icon_with_bg(master_icon, 512, bg).save(PLATFORM_DIR / "web/icon-512.png")
-    _icon_with_bg(master_icon, 512, bg).save(PLATFORM_DIR / "linux/icon.png")
-    _macos_icon_with_bg(master_icon, 1024, bg).save(PLATFORM_DIR / "macos/icon.png")
+    _desktop_icon_with_bg(master_icon, 512, bg).save(PLATFORM_DIR / "linux/icon.png")
+    _desktop_icon_with_bg(master_icon, 1024, bg).save(PLATFORM_DIR / "macos/icon.png")
     _save_ico(master_icon, PLATFORM_DIR / "windows/icon.ico", bg)
     _save_icns(master_icon, PLATFORM_DIR / "macos/icon.icns", bg)
 
@@ -309,11 +331,13 @@ def _save_platform_assets(master_icon, master_full, bg):
     cover.save("assets/logo_char.png")
 
     if TAURI_ICON_DIR.exists():
-        _icon_with_bg(master_icon, 32, bg).save(TAURI_ICON_DIR / "32x32.png")
-        _icon_with_bg(master_icon, 64, bg).save(TAURI_ICON_DIR / "64x64.png")
-        _icon_with_bg(master_icon, 128, bg).save(TAURI_ICON_DIR / "128x128.png")
-        _icon_with_bg(master_icon, 256, bg).save(TAURI_ICON_DIR / "128x128@2x.png")
-        _icon_with_bg(master_icon, 512, bg).save(TAURI_ICON_DIR / "icon.png")
+        _desktop_icon_with_bg(master_icon, 32, bg).save(TAURI_ICON_DIR / "32x32.png")
+        _desktop_icon_with_bg(master_icon, 64, bg).save(TAURI_ICON_DIR / "64x64.png")
+        _desktop_icon_with_bg(master_icon, 128, bg).save(TAURI_ICON_DIR / "128x128.png")
+        _desktop_icon_with_bg(master_icon, 256, bg).save(TAURI_ICON_DIR / "128x128@2x.png")
+        _desktop_icon_with_bg(master_icon, 512, bg).save(TAURI_ICON_DIR / "icon.png")
+        for filename, size in WINDOWS_TILE_SIZES.items():
+            _desktop_icon_with_bg(master_icon, size, bg).save(TAURI_ICON_DIR / filename)
         _save_ico(master_icon, TAURI_ICON_DIR / "icon.ico", bg)
         _save_icns(master_icon, TAURI_ICON_DIR / "icon.icns", bg)
 

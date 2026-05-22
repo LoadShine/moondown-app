@@ -1,15 +1,20 @@
+use std::sync::Mutex;
+
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     AppHandle, Emitter, Manager,
 };
 use tauri_plugin_fs::FsExt;
 
+struct OpenedUrls(Mutex<Vec<String>>);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(OpenedUrls(Mutex::new(initial_opened_urls())))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![allow_fs_path])
+        .invoke_handler(tauri::generate_handler![allow_fs_path, opened_urls])
         .setup(|app| {
             build_menu(app)?;
             Ok(())
@@ -24,7 +29,47 @@ pub fn run() {
                     let _ = window.set_focus();
                 }
             }
+
+            #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+            if let tauri::RunEvent::Opened { urls } = event {
+                let opened_urls = urls
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>();
+                if let Ok(mut state) = app_handle.state::<OpenedUrls>().0.lock() {
+                    state.extend(opened_urls.clone());
+                }
+                let _ = app_handle.emit("moondown-opened", opened_urls);
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
         });
+}
+
+fn initial_opened_urls() -> Vec<String> {
+    std::env::args()
+        .skip(1)
+        .filter(|arg| is_markdown_path_or_url(arg))
+        .collect()
+}
+
+fn is_markdown_path_or_url(value: &str) -> bool {
+    let lowercase = value.to_ascii_lowercase();
+    ["md", "markdown", "mdown", "mkd"]
+        .iter()
+        .any(|extension| lowercase.ends_with(&format!(".{extension}")))
+}
+
+#[tauri::command]
+fn opened_urls(app: AppHandle) -> Result<Vec<String>, String> {
+    let opened_urls = app.state::<OpenedUrls>();
+    let mut state = opened_urls
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?;
+    Ok(state.drain(..).collect())
 }
 
 #[tauri::command]

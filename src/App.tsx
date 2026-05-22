@@ -28,6 +28,7 @@ import {
   openFileAtPath,
   openMarkdownFile,
   openMarkdownFolder,
+  openSystemMarkdownFile,
   readFolderTree,
   saveMarkdownFile,
   importSettingsFile,
@@ -283,6 +284,21 @@ export default function App() {
     }
   }, []);
 
+  const openSystemFile = useCallback(async (urlsOrPaths: string[]) => {
+    try {
+      for (const urlOrPath of urlsOrPaths) {
+        const opened = await openSystemMarkdownFile(urlOrPath);
+        if (!opened) continue;
+        setDocumentState({ content: opened.content, filePath: opened.filePath, dirty: false, updatedAt: Date.now() });
+        setNotice('Opened');
+        requestAnimationFrame(() => editorRef.current?.focus());
+        return;
+      }
+    } catch (error) {
+      setNotice(messageFromError(error));
+    }
+  }, []);
+
   const saveCurrentDocument = useCallback(async (forceSaveAs = false): Promise<boolean> => {
     try {
       const filePath = await saveMarkdownFile({
@@ -391,6 +407,23 @@ export default function App() {
     );
     return () => unlisten?.();
   }, [handleMenuAction]);
+
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    let unlisten: (() => void) | undefined;
+
+    void Promise.all([
+      import('@tauri-apps/api/core'),
+      import('@tauri-apps/api/event'),
+    ]).then(([{ invoke }, { listen }]) => {
+      void invoke<string[]>('opened_urls').then((urls) => openSystemFile(urls));
+      void listen<string[]>('moondown-opened', (event) => openSystemFile(event.payload)).then((cleanup) => {
+        unlisten = cleanup;
+      });
+    });
+
+    return () => unlisten?.();
+  }, [openSystemFile]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

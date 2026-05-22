@@ -68,6 +68,7 @@ if (editorSource && !editorSource.includes('installMoondownInteractionFixes')) {
 }
 if (fileSource && !fileSource.includes('@tauri-apps/plugin-dialog')) failures.push('fileActions.ts must use the Tauri dialog plugin.');
 if (fileSource && !fileSource.includes('@tauri-apps/plugin-fs')) failures.push('fileActions.ts must use the Tauri fs plugin.');
+if (fileSource && !fileSource.includes('openSystemMarkdownFile')) failures.push('fileActions.ts must open Markdown files launched by the OS.');
 if (fileSource && !fileSource.includes('openMarkdownFolder')) failures.push('fileActions.ts must support opening folders.');
 if (fileSource && !fileSource.includes('readFolderTree')) failures.push('fileActions.ts must recursively read folder trees.');
 if (fileSource && !fileSource.includes('exportFile')) failures.push('fileActions.ts must support export save flows.');
@@ -91,8 +92,13 @@ if (providersSource) {
 }
 if (tauriConfig && !tauriConfig.includes('com.loadshine.moondownapp')) failures.push('Tauri config must use the LoadShine app identifier.');
 if (tauriConfig && !tauriConfig.includes('"hiddenTitle": true')) failures.push('Tauri config must hide the macOS title text.');
+if (tauriConfig && !tauriConfig.includes('fileAssociations')) failures.push('Tauri config must register Markdown file associations.');
+if (tauriConfig && !tauriConfig.includes('"md"')) failures.push('Tauri file associations must include .md files.');
+if (tauriConfig && !tauriConfig.includes('"rank": "Owner"')) failures.push('Markdown file associations must request Owner rank.');
 if (tauriLib && !tauriLib.includes('MenuBuilder')) failures.push('Tauri Rust must build a native menu.');
 if (tauriLib && !tauriLib.includes('moondown-menu')) failures.push('Tauri Rust must emit moondown-menu events.');
+if (tauriLib && !tauriLib.includes('moondown-opened')) failures.push('Tauri Rust must emit OS-opened Markdown files.');
+if (tauriLib && !tauriLib.includes('opened_urls')) failures.push('Tauri Rust must expose startup-opened Markdown files.');
 if (tauriLib && !tauriLib.includes('allow_fs_path')) failures.push('Tauri Rust must expose runtime fs scope grants for user-selected files and folders.');
 for (const menuId of ['close-window', 'find', 'replace']) {
   if (tauriLib && !tauriLib.includes(menuId)) failures.push(`Tauri menu must expose ${menuId}.`);
