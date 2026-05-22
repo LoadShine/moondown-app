@@ -11,6 +11,7 @@ export interface MoondownEditorHandle {
   getValue: () => string;
   openSearch: () => void;
   openReplace: () => void;
+  selectRange: (from: number, to: number) => void;
 }
 
 interface MoondownEditorProps {
@@ -23,6 +24,8 @@ interface MoondownEditorProps {
   hideMarkdownSyntax: boolean;
   focusOnMount?: boolean;
   onAIStream?: AIStreamHandler;
+  onSearchShortcut?: () => void;
+  onReplaceShortcut?: () => void;
 }
 
 const MoondownEditor = forwardRef<MoondownEditorHandle, MoondownEditorProps>(function MoondownEditor(
@@ -36,6 +39,8 @@ const MoondownEditor = forwardRef<MoondownEditorHandle, MoondownEditorProps>(fun
     hideMarkdownSyntax,
     focusOnMount = false,
     onAIStream,
+    onSearchShortcut,
+    onReplaceShortcut,
   },
   ref,
 ) {
@@ -43,6 +48,8 @@ const MoondownEditor = forwardRef<MoondownEditorHandle, MoondownEditorProps>(fun
   const editorRef = useRef<Moondown | null>(null);
   const onChangeRef = useRef(onChange);
   const aiStreamRef = useRef(onAIStream);
+  const searchShortcutRef = useRef(onSearchShortcut);
+  const replaceShortcutRef = useRef(onReplaceShortcut);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -51,6 +58,14 @@ const MoondownEditor = forwardRef<MoondownEditorHandle, MoondownEditorProps>(fun
   useEffect(() => {
     aiStreamRef.current = onAIStream;
   }, [onAIStream]);
+
+  useEffect(() => {
+    searchShortcutRef.current = onSearchShortcut;
+  }, [onSearchShortcut]);
+
+  useEffect(() => {
+    replaceShortcutRef.current = onReplaceShortcut;
+  }, [onReplaceShortcut]);
 
   const translations = useMemo<MoondownTranslations>(
     () => {
@@ -81,13 +96,41 @@ const MoondownEditor = forwardRef<MoondownEditorHandle, MoondownEditorProps>(fun
     getValue: () => editorRef.current?.getValue() ?? '',
     openSearch: () => editorRef.current?.openSearch(),
     openReplace: () => editorRef.current?.openReplace(),
+    selectRange: (from, to) => {
+      const view = editorRef.current?.getView();
+      if (!view) return;
+      const docLength = view.state.doc.length;
+      const selectionFrom = Math.max(0, Math.min(from, docLength));
+      const selectionTo = Math.max(selectionFrom, Math.min(to, docLength));
+      view.dispatch({
+        selection: { anchor: selectionFrom, head: selectionTo },
+        scrollIntoView: true,
+      });
+      view.focus();
+    },
   }), []);
 
   useEffect(() => {
     if (!hostRef.current) return;
 
-    const cleanupInteractionFixes = installMoondownInteractionFixes(hostRef.current);
-    const editor = new Moondown(hostRef.current, value, {
+    const host = hostRef.current;
+    const interceptSearchShortcut = (event: KeyboardEvent) => {
+      const command = event.metaKey || event.ctrlKey;
+      if (!command || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key !== 'f' && key !== 'r') return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (key === 'r') replaceShortcutRef.current?.();
+      else searchShortcutRef.current?.();
+    };
+
+    host.addEventListener('keydown', interceptSearchShortcut, true);
+
+    const cleanupInteractionFixes = installMoondownInteractionFixes(host);
+    const editor = new Moondown(host, value, {
       theme,
       locale,
       placeholder,
@@ -107,6 +150,7 @@ const MoondownEditor = forwardRef<MoondownEditorHandle, MoondownEditorProps>(fun
     if (focusOnMount) requestAnimationFrame(() => editor.focus());
 
     return () => {
+      host.removeEventListener('keydown', interceptSearchShortcut, true);
       cleanupInteractionFixes();
       editor.destroy();
       editorRef.current = null;

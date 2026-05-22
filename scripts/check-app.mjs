@@ -12,7 +12,7 @@ const readJson = (relativePath) => JSON.parse(readText(relativePath));
 
 const packageJson = readJson('package.json');
 const failures = [];
-const minimumMoondownVersion = [1, 0, 4];
+const minimumMoondownVersion = [1, 0, 5];
 
 const parseSemverRange = (range) => {
   const match = range?.match(/\d+\.\d+\.\d+/);
@@ -41,7 +41,7 @@ if (
   packageJson.dependencies?.moondown &&
   !isAtLeast(parseSemverRange(packageJson.dependencies.moondown), minimumMoondownVersion)
 ) {
-  failures.push('The app must depend on moondown 1.0.4 or newer.');
+  failures.push('The app must depend on moondown 1.0.5 or newer.');
 }
 if (!packageJson.dependencies?.['@tauri-apps/api']) failures.push('The app must depend on Tauri API.');
 if (!packageJson.scripts?.build?.includes('vite build')) failures.push('The app must have a Vite production build.');
@@ -70,8 +70,12 @@ if (appSource && !appSource.includes('startDragging')) failures.push('App.tsx mu
 if (appSource && !appSource.includes('settings-sheet')) failures.push('App.tsx must expose a settings sheet opened from the menu.');
 if (appSource && !appSource.includes('settings-nav')) failures.push('Settings must use categorized navigation instead of one piled grid.');
 if (appSource && appSource.includes('settings-grid')) failures.push('Settings must not use the old piled settings grid.');
-if (appSource && !appSource.includes('function CommandBar')) failures.push('App.tsx must expose common document actions in a visible command bar.');
-if (appSource && !appSource.includes('className="command-bar"')) failures.push('The visible command bar must use the command-bar class.');
+if (appSource && !appSource.includes('function CommandBar')) failures.push('App.tsx must expose common document actions in a command bar.');
+if (appSource && !appSource.includes('commandBarOpen')) failures.push('App.tsx must hide/show the bottom command bar from state.');
+if (appSource && !appSource.includes('className="command-tray-toggle"')) failures.push('App.tsx must put the command bar toggle in the app top-right corner.');
+if (appSource && !appSource.includes('command-bar open')) failures.push('The command bar must render as a bottom tray that can be opened.');
+if (appSource && appSource.includes('command-group--quick')) failures.push('The command bar must not keep old quick action buttons.');
+if (appSource && appSource.includes('CommandIconButton')) failures.push('The command bar must only keep File, Export as, View, and Settings controls.');
 if (appSource && appSource.includes('onOpenFile={() => void openFile()}')) failures.push('Settings must not be the primary place to open files.');
 if (appSource && appSource.includes('onOpenFolder={() => void loadFolder()}')) failures.push('Settings must not be the primary place to open folders.');
 if (appSource && appSource.includes('onExportFormat')) failures.push('Settings must not expose document export format buttons.');
@@ -80,8 +84,12 @@ if (appSource && !appSource.includes('ProviderPicker')) failures.push('AI settin
 if (appSource && !appSource.includes('onCloseRequested')) failures.push('App.tsx must intercept native close requests.');
 if (appSource && !appSource.includes('.hide()')) failures.push('Closing the window must hide it instead of quitting the app.');
 if (appSource && !appSource.includes('closeDesktopWindow')) failures.push('App.tsx must centralize desktop close handling.');
-if (appSource && !appSource.includes('isFullscreen()')) failures.push('Desktop close handling must detect fullscreen windows before hiding.');
-if (appSource && !appSource.includes('setFullscreen(false)')) failures.push('Desktop close handling must leave fullscreen before hiding on macOS.');
+if (appSource && (appSource.includes('isFullscreen()') || appSource.includes('setFullscreen(false)'))) failures.push('Cmd+W must hide the window directly instead of first exiting fullscreen.');
+if (appSource && !appSource.includes('clearTransientDocumentState')) failures.push('Window close and app quit must clear transient document state.');
+if (appSource && !appSource.includes('findFirstMarkdownFile')) failures.push('Startup folders must open their first markdown file.');
+if (appSource && !appSource.includes('function SearchReplacePanel')) failures.push('App.tsx must provide a custom search/replace panel.');
+if (appSource && !appSource.includes('findExactMatches')) failures.push('Search must use simple exact-match scanning.');
+if (appSource && !appSource.includes('replaceCurrentMatch')) failures.push('Replace must support replacing the active exact match.');
 if (appSource && !appSource.includes('folder-tree')) failures.push('App.tsx must support a folder tree view.');
 if (appSource && !appSource.includes('moondown-menu')) failures.push('App.tsx must listen for native menu events.');
 if (appSource && !appSource.includes('exportCurrentDocument')) failures.push('App.tsx must support exporting the current document.');

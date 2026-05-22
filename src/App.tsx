@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { message } from '@tauri-apps/plugin-dialog';
 import type { AIStreamHandler } from 'moondown';
 import {
   Bot,
@@ -13,6 +12,7 @@ import {
   Folder,
   FolderOpen,
   Languages,
+  Menu,
   Moon,
   Palette,
   PanelLeft,
@@ -82,12 +82,19 @@ type MenuAction =
   | `export-${ExportFormat}`;
 
 type CommandMenuId = 'file' | 'export' | 'view';
+type SearchPanelMode = 'find' | 'replace';
+
+interface SearchMatch {
+  from: number;
+  to: number;
+}
 
 const DRAFT_KEY = 'moondown-app.current-document.v2';
 
 const copy = {
   en: {
     settings: 'Settings',
+    menu: 'Menu',
     close: 'Close',
     file: 'File',
     view: 'View',
@@ -127,6 +134,13 @@ const copy = {
     saveAs: 'Save as',
     find: 'Find',
     replace: 'Replace',
+    searchPlaceholder: 'Find exact text',
+    replacePlaceholder: 'Replace with',
+    previous: 'Previous',
+    next: 'Next',
+    replaceOne: 'Replace',
+    replaceAll: 'Replace all',
+    noMatches: 'No matches',
     folderTree: 'Folder tree',
     exportAs: 'Export as',
     exportMarkdown: 'Markdown',
@@ -143,6 +157,7 @@ const copy = {
   },
   'zh-CN': {
     settings: '设置',
+    menu: '菜单',
     close: '关闭',
     file: '文件',
     view: '视图',
@@ -182,6 +197,13 @@ const copy = {
     saveAs: '另存为',
     find: '查找',
     replace: '替换',
+    searchPlaceholder: '精确查找文本',
+    replacePlaceholder: '替换为',
+    previous: '上一个',
+    next: '下一个',
+    replaceOne: '替换',
+    replaceAll: '全部替换',
+    noMatches: '无匹配',
     folderTree: '文件夹树',
     exportAs: '导出为',
     exportMarkdown: 'Markdown',
@@ -224,7 +246,12 @@ export default function App() {
   const [folderRoot, setFolderRoot] = useState('');
   const [folderTree, setFolderTree] = useState<FolderTreeNode[]>([]);
   const [folderTreeVisible, setFolderTreeVisible] = useState(false);
+  const [commandBarOpen, setCommandBarOpen] = useState(false);
   const [openCommandMenu, setOpenCommandMenu] = useState<CommandMenuId | null>(null);
+  const [searchPanelMode, setSearchPanelMode] = useState<SearchPanelMode | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [replaceText, setReplaceText] = useState('');
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [notice, setNotice] = useState('');
 
   const resolvedTheme = useResolvedTheme(settings.themeMode);
@@ -232,6 +259,8 @@ export default function App() {
   const title = useMemo(() => deriveTitle(documentState.content, documentState.filePath), [documentState.content, documentState.filePath]);
   const labels = copy[settings.language];
   const statusText = notice || `${metrics.words} words · ${metrics.characters} chars · ${documentState.dirty ? 'edited' : 'saved'}`;
+  const searchMatches = useMemo(() => findExactMatches(documentState.content, searchQuery), [documentState.content, searchQuery]);
+  const activeMatch = searchPanelMode && searchMatches.length > 0 ? searchMatches[Math.min(activeMatchIndex, searchMatches.length - 1)] : null;
 
   useDesktopWindowDragging();
 
@@ -265,7 +294,7 @@ export default function App() {
 
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (!target?.closest('.command-bar')) {
+      if (!target?.closest('.command-bar') && !target?.closest('.command-tray-toggle')) {
         setOpenCommandMenu(null);
       }
     };
@@ -284,8 +313,24 @@ export default function App() {
   }, [openCommandMenu]);
 
   useEffect(() => {
+    if (activeMatchIndex <= searchMatches.length - 1) return;
+    setActiveMatchIndex(Math.max(0, searchMatches.length - 1));
+  }, [activeMatchIndex, searchMatches.length]);
+
+  useEffect(() => {
+    if (!activeMatch) return;
+    requestAnimationFrame(() => editorRef.current?.selectRange(activeMatch.from, activeMatch.to));
+  }, [activeMatch]);
+
+  useEffect(() => {
+    const clearOnUnload = () => clearTransientDocumentState();
+    window.addEventListener('beforeunload', clearOnUnload);
+    return () => window.removeEventListener('beforeunload', clearOnUnload);
+  }, []);
+
+  useEffect(() => {
     if (!settings.openStartupFolder || !settings.startupFolderPath || !isDesktopRuntime()) return;
-    void loadFolder(settings.startupFolderPath);
+    void loadFolder(settings.startupFolderPath, { quiet: true, openFirstFile: true });
     // Startup folder should only be opened once at launch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -311,7 +356,10 @@ export default function App() {
     }
   }, []);
 
-  const loadFolder = useCallback(async (rootPath?: string) => {
+  const loadFolder = useCallback(async (
+    rootPath?: string,
+    options: { quiet?: boolean; openFirstFile?: boolean } = {},
+  ) => {
     try {
       const selected = rootPath ?? await openMarkdownFolder();
       if (!selected) return;
@@ -319,7 +367,13 @@ export default function App() {
       setFolderRoot(selected);
       setFolderTree(tree);
       setFolderTreeVisible(true);
-      setNotice('Folder opened');
+      const firstFile = options.openFirstFile !== false ? findFirstMarkdownFile(tree) : null;
+      if (firstFile) {
+        const opened = await openFileAtPath(firstFile.path);
+        setDocumentState({ content: opened.content, filePath: opened.filePath, dirty: false, updatedAt: Date.now() });
+        requestAnimationFrame(() => editorRef.current?.focus());
+      }
+      if (!options.quiet) setNotice('Folder opened');
     } catch (error) {
       setNotice(messageFromError(error));
     }
@@ -373,38 +427,64 @@ export default function App() {
     }
   }, [documentState.content, documentState.filePath, settings.defaultSavePath, title]);
 
-  const closeWindow = useCallback(async () => {
-    if (documentState.dirty) {
-      const saveLabel = settings.language === 'zh-CN' ? '保存' : 'Save';
-      const discardLabel = settings.language === 'zh-CN' ? '不保存' : "Don't Save";
-      const cancelLabel = settings.language === 'zh-CN' ? '取消' : 'Cancel';
-      const result = isDesktopRuntime()
-        ? await message(
-          settings.language === 'zh-CN'
-            ? '关闭前要保存当前文档吗？'
-            : 'Save the current document before closing?',
-          {
-            title: 'Moondown',
-            kind: 'warning',
-            buttons: { yes: saveLabel, no: discardLabel, cancel: cancelLabel },
-          },
-        )
-        : window.confirm(settings.language === 'zh-CN' ? '关闭前要保存当前文档吗？' : 'Save the current document before closing?')
-          ? saveLabel
-          : cancelLabel;
+  const openSearchPanel = useCallback((mode: SearchPanelMode) => {
+    setSearchPanelMode(mode);
+    setCommandBarOpen(false);
+    setOpenCommandMenu(null);
+    requestAnimationFrame(() => {
+      const field = document.querySelector<HTMLInputElement>('.search-replace-panel input[name="query"]');
+      field?.focus();
+      field?.select();
+    });
+  }, []);
 
-      if (result === saveLabel || result === 'Yes') {
-        const saved = await saveCurrentDocument(false);
-        if (!saved) return;
-      } else if (result !== discardLabel && result !== 'No') {
-        return;
-      }
+  const moveSearchMatch = useCallback((direction: 1 | -1) => {
+    if (searchMatches.length === 0) return;
+    setActiveMatchIndex((current) => (current + direction + searchMatches.length) % searchMatches.length);
+  }, [searchMatches.length]);
+
+  const replaceCurrentMatch = useCallback(() => {
+    if (!activeMatch) return;
+    const nextContent = `${documentState.content.slice(0, activeMatch.from)}${replaceText}${documentState.content.slice(activeMatch.to)}`;
+    const nextMatches = findExactMatches(nextContent, searchQuery);
+    const nextIndex = Math.min(activeMatchIndex, Math.max(0, nextMatches.length - 1));
+    setDocumentState({ content: nextContent, filePath: documentState.filePath, dirty: true, updatedAt: Date.now() });
+    setActiveMatchIndex(nextIndex);
+    requestAnimationFrame(() => editorRef.current?.selectRange(activeMatch.from, activeMatch.from + replaceText.length));
+  }, [activeMatch, activeMatchIndex, documentState.content, documentState.filePath, replaceText, searchQuery]);
+
+  const replaceAllMatches = useCallback(() => {
+    if (!searchQuery || searchMatches.length === 0) return;
+    const nextContent = documentState.content.split(searchQuery).join(replaceText);
+    setDocumentState({ content: nextContent, filePath: documentState.filePath, dirty: true, updatedAt: Date.now() });
+    setActiveMatchIndex(0);
+    requestAnimationFrame(() => editorRef.current?.focus());
+  }, [documentState.content, documentState.filePath, replaceText, searchMatches.length, searchQuery]);
+
+  const resetDocumentForNextOpen = useCallback(async () => {
+    clearTransientDocumentState();
+    setSettingsOpen(false);
+    setCommandBarOpen(false);
+    setOpenCommandMenu(null);
+    setSearchPanelMode(null);
+    setNotice('');
+    setDocumentState({ content: '', filePath: null, dirty: false, updatedAt: Date.now() });
+    setFolderRoot('');
+    setFolderTree([]);
+    setFolderTreeVisible(false);
+
+    if (settings.openStartupFolder && settings.startupFolderPath && isDesktopRuntime()) {
+      await loadFolder(settings.startupFolderPath, { quiet: true, openFirstFile: true });
     }
+  }, [loadFolder, settings.openStartupFolder, settings.startupFolderPath]);
+
+  const closeWindow = useCallback(async () => {
+    await resetDocumentForNextOpen();
 
     if (isDesktopRuntime()) {
       await closeDesktopWindow();
     }
-  }, [documentState.dirty, saveCurrentDocument, settings.language]);
+  }, [resetDocumentForNextOpen]);
 
   const exportCurrentDocument = useCallback(async (format: ExportFormat) => {
     try {
@@ -429,8 +509,8 @@ export default function App() {
     else if (action === 'save-as') void saveCurrentDocument(true);
     else if (action === 'close-window') void closeWindow();
     else if (action === 'settings') setSettingsOpen(true);
-    else if (action === 'find') editorRef.current?.openSearch();
-    else if (action === 'replace') editorRef.current?.openReplace();
+    else if (action === 'find') openSearchPanel('find');
+    else if (action === 'replace') openSearchPanel('replace');
     else if (action === 'toggle-tree') setFolderTreeVisible((visible) => !visible);
     else if (action === 'toggle-syntax') updateSettings({ hideMarkdownSyntax: !settings.hideMarkdownSyntax });
     else if (action === 'theme-system' || action === 'theme-light' || action === 'theme-dark') {
@@ -445,12 +525,14 @@ export default function App() {
     openFile,
     saveCurrentDocument,
     closeWindow,
+    openSearchPanel,
     settings.hideMarkdownSyntax,
     updateSettings,
   ]);
 
   const runCommandBarAction = useCallback((action: MenuAction) => {
     setOpenCommandMenu(null);
+    setCommandBarOpen(false);
     handleMenuAction(action);
   }, [handleMenuAction]);
 
@@ -504,10 +586,10 @@ export default function App() {
         void saveCurrentDocument(event.shiftKey);
       } else if (key === 'f' && !event.altKey) {
         event.preventDefault();
-        editorRef.current?.openSearch();
+        openSearchPanel('find');
       } else if (key === 'r' && !event.altKey) {
         event.preventDefault();
-        editorRef.current?.openReplace();
+        openSearchPanel('replace');
       } else if (key === 'w' && !event.altKey) {
         event.preventDefault();
         void closeWindow();
@@ -516,7 +598,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closeWindow, createDocument, loadFolder, openFile, saveCurrentDocument]);
+  }, [closeWindow, createDocument, loadFolder, openFile, openSearchPanel, saveCurrentDocument]);
 
   useEffect(() => {
     if (!isDesktopRuntime()) return;
@@ -543,9 +625,22 @@ export default function App() {
   }, [settings]);
 
   return (
-    <main className={`blank-shell ${folderTreeVisible && folderTree.length > 0 ? 'with-tree' : ''}`}>
+    <main className={`blank-shell ${folderTreeVisible && folderTree.length > 0 ? 'with-tree' : ''} ${commandBarOpen ? 'command-open' : ''}`}>
       <div className="window-drag-layer" data-tauri-drag-region />
+      <button
+        type="button"
+        className="command-tray-toggle"
+        aria-label={labels.menu}
+        aria-expanded={commandBarOpen}
+        onClick={() => {
+          setCommandBarOpen((open) => !open);
+          setOpenCommandMenu(null);
+        }}
+      >
+        <Menu size={17} />
+      </button>
       <CommandBar
+        open={commandBarOpen}
         labels={labels}
         settings={settings}
         activeMenu={openCommandMenu}
@@ -570,6 +665,8 @@ export default function App() {
           hideMarkdownSyntax={settings.hideMarkdownSyntax}
           focusOnMount
           onAIStream={aiStreamHandler}
+          onSearchShortcut={() => openSearchPanel('find')}
+          onReplaceShortcut={() => openSearchPanel('replace')}
           onChange={(content) => setDocumentState((current) => ({
             ...current,
             content,
@@ -580,6 +677,31 @@ export default function App() {
       </section>
 
       <div className="status-line" aria-live="polite">{statusText}</div>
+
+      {searchPanelMode && (
+        <SearchReplacePanel
+          labels={labels}
+          mode={searchPanelMode}
+          query={searchQuery}
+          replaceText={replaceText}
+          matchCount={searchMatches.length}
+          activeIndex={searchMatches.length > 0 ? Math.min(activeMatchIndex, searchMatches.length - 1) : -1}
+          onModeChange={setSearchPanelMode}
+          onQueryChange={(value) => {
+            setSearchQuery(value);
+            setActiveMatchIndex(0);
+          }}
+          onReplaceTextChange={setReplaceText}
+          onPrevious={() => moveSearchMatch(-1)}
+          onNext={() => moveSearchMatch(1)}
+          onReplaceCurrent={replaceCurrentMatch}
+          onReplaceAll={replaceAllMatches}
+          onClose={() => {
+            setSearchPanelMode(null);
+            requestAnimationFrame(() => editorRef.current?.focus());
+          }}
+        />
+      )}
 
       {settingsOpen && (
         <SettingsSheet
@@ -622,12 +744,14 @@ export default function App() {
 }
 
 function CommandBar({
+  open,
   labels,
   settings,
   activeMenu,
   onToggleMenu,
   onAction,
 }: {
+  open: boolean;
   labels: typeof copy.en;
   settings: EditorSettings;
   activeMenu: CommandMenuId | null;
@@ -635,7 +759,7 @@ function CommandBar({
   onAction: (action: MenuAction) => void;
 }) {
   return (
-    <nav className="command-bar" aria-label="Common actions">
+    <nav className={open ? 'command-bar open' : 'command-bar'} aria-label="Common actions" aria-hidden={!open}>
       <div className="command-group">
         <CommandMenuButton
           id="file"
@@ -681,15 +805,11 @@ function CommandBar({
           <CommandMenuItem icon={Sun} label={labels.light} onClick={() => onAction('theme-light')} selected={settings.themeMode === 'light'} />
           <CommandMenuItem icon={Moon} label={labels.dark} onClick={() => onAction('theme-dark')} selected={settings.themeMode === 'dark'} />
         </CommandMenuButton>
-      </div>
 
-      <div className="command-divider" />
-
-      <div className="command-group command-group--quick">
-        <CommandIconButton icon={Save} label={labels.save} onClick={() => onAction('save')} />
-        <CommandIconButton icon={Search} label={labels.find} onClick={() => onAction('find')} />
-        <CommandIconButton icon={Replace} label={labels.replace} onClick={() => onAction('replace')} />
-        <CommandIconButton icon={SettingsIcon} label={labels.settings} onClick={() => onAction('settings')} />
+        <button type="button" className="command-menu-trigger" onClick={() => onAction('settings')}>
+          <SettingsIcon size={15} />
+          <span>{labels.settings}</span>
+        </button>
       </div>
     </nav>
   );
@@ -753,19 +873,113 @@ function CommandMenuItem({
   );
 }
 
-function CommandIconButton({
-  icon: Icon,
-  label,
-  onClick,
+function SearchReplacePanel({
+  labels,
+  mode,
+  query,
+  replaceText,
+  matchCount,
+  activeIndex,
+  onModeChange,
+  onQueryChange,
+  onReplaceTextChange,
+  onPrevious,
+  onNext,
+  onReplaceCurrent,
+  onReplaceAll,
+  onClose,
 }: {
-  icon: LucideIcon;
-  label: string;
-  onClick: () => void;
+  labels: typeof copy.en;
+  mode: SearchPanelMode;
+  query: string;
+  replaceText: string;
+  matchCount: number;
+  activeIndex: number;
+  onModeChange: (mode: SearchPanelMode) => void;
+  onQueryChange: (value: string) => void;
+  onReplaceTextChange: (value: string) => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  onReplaceCurrent: () => void;
+  onReplaceAll: () => void;
+  onClose: () => void;
 }) {
+  const canReplace = mode === 'replace' && query.length > 0 && matchCount > 0;
+  const counter = query.length === 0
+    ? '0/0'
+    : matchCount > 0
+      ? `${activeIndex + 1}/${matchCount}`
+      : labels.noMatches;
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onClose();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      if (event.shiftKey) onPrevious();
+      else onNext();
+    }
+  };
+
   return (
-    <button type="button" className="command-icon-button" aria-label={label} title={label} onClick={onClick}>
-      <Icon size={16} />
-    </button>
+    <section className={`search-replace-panel ${mode === 'replace' ? 'replace-mode' : ''}`} aria-label={mode === 'replace' ? labels.replace : labels.find}>
+      <div className="search-mode-switch" role="tablist" aria-label={labels.find}>
+        <button type="button" className={mode === 'find' ? 'active' : ''} onClick={() => onModeChange('find')}>
+          <Search size={14} />
+          <span>{labels.find}</span>
+        </button>
+        <button type="button" className={mode === 'replace' ? 'active' : ''} onClick={() => onModeChange('replace')}>
+          <Replace size={14} />
+          <span>{labels.replace}</span>
+        </button>
+      </div>
+
+      <div className="search-fields">
+        <label className="search-input-wrap">
+          <Search size={15} />
+          <input
+            name="query"
+            value={query}
+            placeholder={labels.searchPlaceholder}
+            onChange={(event) => onQueryChange(event.target.value)}
+            onKeyDown={onKeyDown}
+          />
+          <span>{counter}</span>
+        </label>
+
+        {mode === 'replace' && (
+          <label className="search-input-wrap replace-input-wrap">
+            <Replace size={15} />
+            <input
+              name="replace"
+              value={replaceText}
+              placeholder={labels.replacePlaceholder}
+              onChange={(event) => onReplaceTextChange(event.target.value)}
+              onKeyDown={onKeyDown}
+            />
+          </label>
+        )}
+      </div>
+
+      <div className="search-actions">
+        <button type="button" aria-label={labels.previous} title={labels.previous} disabled={matchCount === 0} onClick={onPrevious}>
+          <ChevronRight size={15} className="previous-icon" />
+        </button>
+        <button type="button" aria-label={labels.next} title={labels.next} disabled={matchCount === 0} onClick={onNext}>
+          <ChevronRight size={15} />
+        </button>
+        {mode === 'replace' && (
+          <>
+            <button type="button" className="text-action" disabled={!canReplace} onClick={onReplaceCurrent}>{labels.replaceOne}</button>
+            <button type="button" className="text-action" disabled={!canReplace} onClick={onReplaceAll}>{labels.replaceAll}</button>
+          </>
+        )}
+        <button type="button" aria-label={labels.close} title={labels.close} onClick={onClose}>
+          <X size={15} />
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -1181,22 +1395,35 @@ function useDesktopWindowDragging() {
 }
 
 async function closeDesktopWindow(): Promise<void> {
-  const appWindow = getCurrentWindow();
-
-  try {
-    if (await appWindow.isFullscreen()) {
-      await appWindow.setFullscreen(false);
-      await waitForWindowTransition();
-    }
-  } catch {
-    // Closing should continue even if a platform cannot report fullscreen state.
-  }
-
-  await appWindow.hide();
+  await getCurrentWindow().hide();
 }
 
-function waitForWindowTransition(ms = 240): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+function clearTransientDocumentState(): void {
+  localStorage.removeItem(DRAFT_KEY);
+}
+
+function findExactMatches(content: string, query: string): SearchMatch[] {
+  if (!query) return [];
+  const matches: SearchMatch[] = [];
+  let from = content.indexOf(query);
+
+  while (from !== -1) {
+    matches.push({ from, to: from + query.length });
+    from = content.indexOf(query, from + query.length);
+  }
+
+  return matches;
+}
+
+function findFirstMarkdownFile(nodes: FolderTreeNode[]): FolderTreeNode | null {
+  for (const node of nodes) {
+    if (node.kind === 'file') return node;
+    if (node.children) {
+      const child = findFirstMarkdownFile(node.children);
+      if (child) return child;
+    }
+  }
+  return null;
 }
 
 function useResolvedTheme(themeMode: ThemeMode) {
