@@ -7,16 +7,26 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  EyeOff,
   FileText,
+  FilePlus,
   Folder,
   FolderOpen,
   Languages,
+  Moon,
   Palette,
+  PanelLeft,
   PenLine,
   RotateCcw,
+  Save,
+  Search,
+  Settings as SettingsIcon,
   SlidersHorizontal,
+  Sun,
   Upload,
   X,
+  Monitor,
+  Replace,
   type LucideIcon,
 } from 'lucide-react';
 import MoondownEditor, { type MoondownEditorHandle } from './components/MoondownEditor';
@@ -71,12 +81,16 @@ type MenuAction =
   | 'theme-dark'
   | `export-${ExportFormat}`;
 
+type CommandMenuId = 'file' | 'export' | 'view';
+
 const DRAFT_KEY = 'moondown-app.current-document.v2';
 
 const copy = {
   en: {
     settings: 'Settings',
     close: 'Close',
+    file: 'File',
+    view: 'View',
     general: 'General',
     writing: 'Writing',
     ai: 'AI',
@@ -106,8 +120,14 @@ const copy = {
     startupFolder: 'Default startup folder',
     reopen: 'Open startup folder on launch',
     choose: 'Choose',
+    new: 'New',
     openFile: 'Open file',
     openFolder: 'Open folder',
+    save: 'Save',
+    saveAs: 'Save as',
+    find: 'Find',
+    replace: 'Replace',
+    folderTree: 'Folder tree',
     exportAs: 'Export as',
     exportMarkdown: 'Markdown',
     exportText: 'Text',
@@ -124,6 +144,8 @@ const copy = {
   'zh-CN': {
     settings: '设置',
     close: '关闭',
+    file: '文件',
+    view: '视图',
     general: '通用',
     writing: '写作',
     ai: 'AI',
@@ -153,8 +175,14 @@ const copy = {
     startupFolder: '默认打开文件夹',
     reopen: '启动时打开该文件夹',
     choose: '选择',
+    new: '新建',
     openFile: '打开文件',
     openFolder: '打开文件夹',
+    save: '保存',
+    saveAs: '另存为',
+    find: '查找',
+    replace: '替换',
+    folderTree: '文件夹树',
     exportAs: '导出为',
     exportMarkdown: 'Markdown',
     exportText: '纯文本',
@@ -196,6 +224,7 @@ export default function App() {
   const [folderRoot, setFolderRoot] = useState('');
   const [folderTree, setFolderTree] = useState<FolderTreeNode[]>([]);
   const [folderTreeVisible, setFolderTreeVisible] = useState(false);
+  const [openCommandMenu, setOpenCommandMenu] = useState<CommandMenuId | null>(null);
   const [notice, setNotice] = useState('');
 
   const resolvedTheme = useResolvedTheme(settings.themeMode);
@@ -230,6 +259,29 @@ export default function App() {
     const timeout = window.setTimeout(() => setNotice(''), 2200);
     return () => window.clearTimeout(timeout);
   }, [notice]);
+
+  useEffect(() => {
+    if (!openCommandMenu) return;
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target?.closest('.command-bar')) {
+        setOpenCommandMenu(null);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenCommandMenu(null);
+      }
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [openCommandMenu]);
 
   useEffect(() => {
     if (!settings.openStartupFolder || !settings.startupFolderPath || !isDesktopRuntime()) return;
@@ -350,7 +402,7 @@ export default function App() {
     }
 
     if (isDesktopRuntime()) {
-      await getCurrentWindow().hide();
+      await closeDesktopWindow();
     }
   }, [documentState.dirty, saveCurrentDocument, settings.language]);
 
@@ -396,6 +448,11 @@ export default function App() {
     settings.hideMarkdownSyntax,
     updateSettings,
   ]);
+
+  const runCommandBarAction = useCallback((action: MenuAction) => {
+    setOpenCommandMenu(null);
+    handleMenuAction(action);
+  }, [handleMenuAction]);
 
   useEffect(() => {
     if (!isDesktopRuntime()) return;
@@ -488,6 +545,13 @@ export default function App() {
   return (
     <main className={`blank-shell ${folderTreeVisible && folderTree.length > 0 ? 'with-tree' : ''}`}>
       <div className="window-drag-layer" data-tauri-drag-region />
+      <CommandBar
+        labels={labels}
+        settings={settings}
+        activeMenu={openCommandMenu}
+        onToggleMenu={(menu) => setOpenCommandMenu((current) => current === menu ? null : menu)}
+        onAction={runCommandBarAction}
+      />
 
       {folderTreeVisible && folderTree.length > 0 && (
         <aside className="folder-tree" aria-label="Folder tree">
@@ -526,8 +590,6 @@ export default function App() {
             setSettingsOpen(false);
             requestAnimationFrame(() => editorRef.current?.focus());
           }}
-          onOpenFile={() => void openFile()}
-          onOpenFolder={() => void loadFolder()}
           onChooseDefaultSavePath={async () => {
             const path = await chooseDirectory();
             if (path) updateSettings({ defaultSavePath: path });
@@ -556,6 +618,154 @@ export default function App() {
         />
       )}
     </main>
+  );
+}
+
+function CommandBar({
+  labels,
+  settings,
+  activeMenu,
+  onToggleMenu,
+  onAction,
+}: {
+  labels: typeof copy.en;
+  settings: EditorSettings;
+  activeMenu: CommandMenuId | null;
+  onToggleMenu: (menu: CommandMenuId) => void;
+  onAction: (action: MenuAction) => void;
+}) {
+  return (
+    <nav className="command-bar" aria-label="Common actions">
+      <div className="command-group">
+        <CommandMenuButton
+          id="file"
+          label={labels.file}
+          icon={FileText}
+          activeMenu={activeMenu}
+          onToggleMenu={onToggleMenu}
+        >
+          <CommandMenuItem icon={FilePlus} label={labels.new} onClick={() => onAction('new-document')} />
+          <CommandMenuItem icon={FileText} label={labels.openFile} onClick={() => onAction('open-file')} />
+          <CommandMenuItem icon={FolderOpen} label={labels.openFolder} onClick={() => onAction('open-folder')} />
+          <div className="command-menu-separator" />
+          <CommandMenuItem icon={Save} label={labels.save} onClick={() => onAction('save')} />
+          <CommandMenuItem icon={Download} label={labels.saveAs} onClick={() => onAction('save-as')} />
+        </CommandMenuButton>
+
+        <CommandMenuButton
+          id="export"
+          label={labels.exportAs}
+          icon={Download}
+          activeMenu={activeMenu}
+          onToggleMenu={onToggleMenu}
+        >
+          <CommandMenuItem icon={FileText} label={labels.exportMarkdown} onClick={() => onAction('export-markdown')} />
+          <CommandMenuItem icon={FileText} label={labels.exportText} onClick={() => onAction('export-txt')} />
+          <CommandMenuItem icon={FileText} label={labels.exportHtml} onClick={() => onAction('export-html')} />
+          <CommandMenuItem icon={FileText} label={labels.exportWord} onClick={() => onAction('export-docx')} />
+          <CommandMenuItem icon={Download} label={labels.exportImage} onClick={() => onAction('export-jpg')} />
+          <CommandMenuItem icon={Download} label={labels.exportEpub} onClick={() => onAction('export-epub')} />
+        </CommandMenuButton>
+
+        <CommandMenuButton
+          id="view"
+          label={labels.view}
+          icon={PanelLeft}
+          activeMenu={activeMenu}
+          onToggleMenu={onToggleMenu}
+        >
+          <CommandMenuItem icon={PanelLeft} label={labels.folderTree} onClick={() => onAction('toggle-tree')} />
+          <CommandMenuItem icon={EyeOff} label={labels.markers} onClick={() => onAction('toggle-syntax')} selected={settings.hideMarkdownSyntax} />
+          <div className="command-menu-separator" />
+          <CommandMenuItem icon={Monitor} label={labels.system} onClick={() => onAction('theme-system')} selected={settings.themeMode === 'system'} />
+          <CommandMenuItem icon={Sun} label={labels.light} onClick={() => onAction('theme-light')} selected={settings.themeMode === 'light'} />
+          <CommandMenuItem icon={Moon} label={labels.dark} onClick={() => onAction('theme-dark')} selected={settings.themeMode === 'dark'} />
+        </CommandMenuButton>
+      </div>
+
+      <div className="command-divider" />
+
+      <div className="command-group command-group--quick">
+        <CommandIconButton icon={Save} label={labels.save} onClick={() => onAction('save')} />
+        <CommandIconButton icon={Search} label={labels.find} onClick={() => onAction('find')} />
+        <CommandIconButton icon={Replace} label={labels.replace} onClick={() => onAction('replace')} />
+        <CommandIconButton icon={SettingsIcon} label={labels.settings} onClick={() => onAction('settings')} />
+      </div>
+    </nav>
+  );
+}
+
+function CommandMenuButton({
+  id,
+  label,
+  icon: Icon,
+  activeMenu,
+  onToggleMenu,
+  children,
+}: {
+  id: CommandMenuId;
+  label: string;
+  icon: LucideIcon;
+  activeMenu: CommandMenuId | null;
+  onToggleMenu: (menu: CommandMenuId) => void;
+  children: ReactNode;
+}) {
+  const isActive = activeMenu === id;
+
+  return (
+    <div className="command-menu-wrap">
+      <button
+        type="button"
+        className={`command-menu-trigger ${isActive ? 'active' : ''}`}
+        aria-haspopup="menu"
+        aria-expanded={isActive}
+        onClick={() => onToggleMenu(id)}
+      >
+        <Icon size={15} />
+        <span>{label}</span>
+        <ChevronDown size={13} />
+      </button>
+      {isActive && (
+        <div className="command-menu" role="menu">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CommandMenuItem({
+  icon: Icon,
+  label,
+  selected = false,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  selected?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" role="menuitem" className={selected ? 'selected' : ''} onClick={onClick}>
+      <Icon size={15} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function CommandIconButton({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className="command-icon-button" aria-label={label} title={label} onClick={onClick}>
+      <Icon size={16} />
+    </button>
   );
 }
 
@@ -613,8 +823,6 @@ function SettingsSheet({
   settings,
   onChange,
   onClose,
-  onOpenFile,
-  onOpenFolder,
   onChooseDefaultSavePath,
   onChooseStartupFolder,
   onImportSettings,
@@ -625,8 +833,6 @@ function SettingsSheet({
   settings: EditorSettings;
   onChange: (patch: Partial<EditorSettings>) => void;
   onClose: () => void;
-  onOpenFile: () => void;
-  onOpenFolder: () => void;
   onChooseDefaultSavePath: () => void;
   onChooseStartupFolder: () => void;
   onImportSettings: () => void;
@@ -739,10 +945,6 @@ function SettingsSheet({
               <div className="preference-group">
                 <PathControl label={labels.savePath} value={settings.defaultSavePath} onChoose={onChooseDefaultSavePath} chooseLabel={labels.choose} />
                 <PathControl label={labels.startupFolder} value={settings.startupFolderPath} onChoose={onChooseStartupFolder} chooseLabel={labels.choose} />
-                <div className="settings-action-grid">
-                  <button type="button" onClick={onOpenFile}><FileText size={15} />{labels.openFile}</button>
-                  <button type="button" onClick={onOpenFolder}><FolderOpen size={15} />{labels.openFolder}</button>
-                </div>
               </div>
             )}
 
@@ -976,6 +1178,25 @@ function useDesktopWindowDragging() {
     document.addEventListener('mousedown', handleMouseDown, true);
     return () => document.removeEventListener('mousedown', handleMouseDown, true);
   }, []);
+}
+
+async function closeDesktopWindow(): Promise<void> {
+  const appWindow = getCurrentWindow();
+
+  try {
+    if (await appWindow.isFullscreen()) {
+      await appWindow.setFullscreen(false);
+      await waitForWindowTransition();
+    }
+  } catch {
+    // Closing should continue even if a platform cannot report fullscreen state.
+  }
+
+  await appWindow.hide();
+}
+
+function waitForWindowTransition(ms = 240): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function useResolvedTheme(themeMode: ThemeMode) {

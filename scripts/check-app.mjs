@@ -12,6 +12,21 @@ const readJson = (relativePath) => JSON.parse(readText(relativePath));
 
 const packageJson = readJson('package.json');
 const failures = [];
+const minimumMoondownVersion = [1, 0, 4];
+
+const parseSemverRange = (range) => {
+  const match = range?.match(/\d+\.\d+\.\d+/);
+  return match ? match[0].split('.').map(Number) : null;
+};
+
+const isAtLeast = (version, minimum) => {
+  if (!version) return false;
+  for (let index = 0; index < minimum.length; index += 1) {
+    if (version[index] > minimum[index]) return true;
+    if (version[index] < minimum[index]) return false;
+  }
+  return true;
+};
 
 const requireFile = (relativePath) => {
   if (!fs.existsSync(path.join(rootDir, relativePath))) {
@@ -22,6 +37,12 @@ const requireFile = (relativePath) => {
 };
 
 if (!packageJson.dependencies?.moondown) failures.push('The app must depend on npm moondown.');
+if (
+  packageJson.dependencies?.moondown &&
+  !isAtLeast(parseSemverRange(packageJson.dependencies.moondown), minimumMoondownVersion)
+) {
+  failures.push('The app must depend on moondown 1.0.4 or newer.');
+}
 if (!packageJson.dependencies?.['@tauri-apps/api']) failures.push('The app must depend on Tauri API.');
 if (!packageJson.scripts?.build?.includes('vite build')) failures.push('The app must have a Vite production build.');
 
@@ -49,11 +70,18 @@ if (appSource && !appSource.includes('startDragging')) failures.push('App.tsx mu
 if (appSource && !appSource.includes('settings-sheet')) failures.push('App.tsx must expose a settings sheet opened from the menu.');
 if (appSource && !appSource.includes('settings-nav')) failures.push('Settings must use categorized navigation instead of one piled grid.');
 if (appSource && appSource.includes('settings-grid')) failures.push('Settings must not use the old piled settings grid.');
+if (appSource && !appSource.includes('function CommandBar')) failures.push('App.tsx must expose common document actions in a visible command bar.');
+if (appSource && !appSource.includes('className="command-bar"')) failures.push('The visible command bar must use the command-bar class.');
+if (appSource && appSource.includes('onOpenFile={() => void openFile()}')) failures.push('Settings must not be the primary place to open files.');
+if (appSource && appSource.includes('onOpenFolder={() => void loadFolder()}')) failures.push('Settings must not be the primary place to open folders.');
 if (appSource && appSource.includes('onExportFormat')) failures.push('Settings must not expose document export format buttons.');
 if (appSource && appSource.includes('export-grid')) failures.push('Settings must not expose document export controls.');
 if (appSource && !appSource.includes('ProviderPicker')) failures.push('AI settings must expose a built-in provider picker.');
 if (appSource && !appSource.includes('onCloseRequested')) failures.push('App.tsx must intercept native close requests.');
-if (appSource && !appSource.includes('getCurrentWindow().hide')) failures.push('Closing the window must hide it instead of quitting the app.');
+if (appSource && !appSource.includes('.hide()')) failures.push('Closing the window must hide it instead of quitting the app.');
+if (appSource && !appSource.includes('closeDesktopWindow')) failures.push('App.tsx must centralize desktop close handling.');
+if (appSource && !appSource.includes('isFullscreen()')) failures.push('Desktop close handling must detect fullscreen windows before hiding.');
+if (appSource && !appSource.includes('setFullscreen(false)')) failures.push('Desktop close handling must leave fullscreen before hiding on macOS.');
 if (appSource && !appSource.includes('folder-tree')) failures.push('App.tsx must support a folder tree view.');
 if (appSource && !appSource.includes('moondown-menu')) failures.push('App.tsx must listen for native menu events.');
 if (appSource && !appSource.includes('exportCurrentDocument')) failures.push('App.tsx must support exporting the current document.');
@@ -106,6 +134,8 @@ for (const menuId of ['close-window', 'find', 'replace']) {
 if (capabilities && !capabilities.includes('fs:allow-read-dir')) failures.push('Tauri capabilities must allow folder reads.');
 if (capabilities && !capabilities.includes('core:window:allow-start-dragging')) failures.push('Tauri capabilities must allow hidden-title dragging.');
 if (capabilities && !capabilities.includes('core:window:allow-hide')) failures.push('Tauri capabilities must allow close-to-hide behavior.');
+if (capabilities && !capabilities.includes('core:window:allow-is-fullscreen')) failures.push('Tauri capabilities must allow fullscreen state checks before close-to-hide.');
+if (capabilities && !capabilities.includes('core:window:allow-set-fullscreen')) failures.push('Tauri capabilities must allow exiting fullscreen before close-to-hide.');
 if (workflow && !workflow.includes('tauri-apps/tauri-action')) failures.push('GitHub Actions must build Tauri artifacts.');
 if (workflow && workflow.includes('tauri-apps/tauri-action@v1')) failures.push('GitHub Actions must not use nonexistent tauri-action@v1.');
 if (workflow && !workflow.includes('tauri-apps/tauri-action@v0.6.2')) failures.push('GitHub Actions must pin a resolvable tauri-action version.');
