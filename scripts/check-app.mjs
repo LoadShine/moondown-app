@@ -118,6 +118,24 @@ if (editorSource && editorSource.includes('spellCheck={false}')) {
 if (editorSource && !editorSource.includes('installMoondownInteractionFixes')) {
   failures.push('MoondownEditor.tsx must install interaction fixes for table cell focus and controls.');
 }
+if (appSource && appSource.includes("import('@tauri-apps/api/core')")) {
+  failures.push('App.tsx must not dynamically import @tauri-apps/api/core because it creates an ineffective Vite chunk split.');
+}
+if (appSource && appSource.includes("import('@tauri-apps/api/event')")) {
+  failures.push('App.tsx must not dynamically import @tauri-apps/api/event because it creates an ineffective Vite chunk split.');
+}
+if (appSource && !appSource.includes("from '@tauri-apps/api/core'")) {
+  failures.push('App.tsx must statically import Tauri invoke.');
+}
+if (appSource && !appSource.includes("from '@tauri-apps/api/event'")) {
+  failures.push('App.tsx must statically import Tauri listen.');
+}
+if (fileSource && fileSource.includes("import('@tauri-apps/api/core')")) {
+  failures.push('fileActions.ts must not dynamically import @tauri-apps/api/core because it creates an ineffective Vite chunk split.');
+}
+if (fileSource && !fileSource.includes("from '@tauri-apps/api/core'")) {
+  failures.push('fileActions.ts must statically import Tauri invoke.');
+}
 if (fileSource && !fileSource.includes('@tauri-apps/plugin-dialog')) failures.push('fileActions.ts must use the Tauri dialog plugin.');
 if (fileSource && !fileSource.includes('@tauri-apps/plugin-fs')) failures.push('fileActions.ts must use the Tauri fs plugin.');
 if (fileSource && !fileSource.includes('openSystemMarkdownFile')) failures.push('fileActions.ts must open Markdown files launched by the OS.');
@@ -170,11 +188,18 @@ for (const menuId of ['close-window', 'find', 'replace']) {
 if (capabilities && !capabilities.includes('fs:allow-read-dir')) failures.push('Tauri capabilities must allow folder reads.');
 if (capabilities && !capabilities.includes('core:window:allow-start-dragging')) failures.push('Tauri capabilities must allow hidden-title dragging.');
 if (capabilities && !capabilities.includes('core:window:allow-hide')) failures.push('Tauri capabilities must allow close-to-hide behavior.');
-if (capabilities && !capabilities.includes('core:window:allow-is-fullscreen')) failures.push('Tauri capabilities must allow fullscreen state checks before close-to-hide.');
-if (capabilities && !capabilities.includes('core:window:allow-set-fullscreen')) failures.push('Tauri capabilities must allow exiting fullscreen before close-to-hide.');
+if (capabilities && capabilities.includes('core:window:allow-is-fullscreen')) failures.push('Tauri capabilities must not allow unused fullscreen state checks.');
+if (capabilities && capabilities.includes('core:window:allow-set-fullscreen')) failures.push('Tauri capabilities must not allow unused fullscreen mutations.');
 if (workflow && !workflow.includes('tauri-apps/tauri-action')) failures.push('GitHub Actions must build Tauri artifacts.');
 if (workflow && workflow.includes('tauri-apps/tauri-action@v1')) failures.push('GitHub Actions must not use nonexistent tauri-action@v1.');
 if (workflow && !workflow.includes('tauri-apps/tauri-action@v0.6.2')) failures.push('GitHub Actions must pin a resolvable tauri-action version.');
+if (workflow && workflow.includes('actions/checkout@v4')) failures.push('GitHub Actions must not use checkout@v4 because it runs on the deprecated Node 20 runtime.');
+if (workflow && !workflow.includes('actions/checkout@v6')) failures.push('GitHub Actions must use checkout@v6.');
+if (workflow && workflow.includes('actions/setup-node@v4')) failures.push('GitHub Actions must not use setup-node@v4 because it runs on the deprecated Node 20 runtime.');
+if (workflow && !workflow.includes('actions/setup-node@v6')) failures.push('GitHub Actions must use setup-node@v6.');
+if (workflow && !workflow.includes('node-version: 24')) failures.push('GitHub Actions must run Node.js 24.');
+if (workflow && workflow.includes('pnpm/action-setup@v4')) failures.push('GitHub Actions must not use pnpm/action-setup@v4 because it runs on the deprecated Node 20 runtime.');
+if (workflow && !workflow.includes('pnpm/action-setup@v6')) failures.push('GitHub Actions must use pnpm/action-setup@v6.');
 if (lightLogo && !lightLogo.includes('app-icon-bg')) failures.push('Light logo must include a rounded-rectangle background.');
 if (darkLogo && !darkLogo.includes('app-icon-bg')) failures.push('Dark logo must include a rounded-rectangle background.');
 for (const dependency of ['markdown-it', 'docx', 'jszip']) {

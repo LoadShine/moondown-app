@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { AIStreamHandler } from 'moondown';
 import {
@@ -539,11 +541,9 @@ export default function App() {
   useEffect(() => {
     if (!isDesktopRuntime()) return;
     let unlisten: (() => void) | undefined;
-    void import('@tauri-apps/api/event').then(({ listen }) =>
-      listen<MenuAction>('moondown-menu', (event) => handleMenuAction(event.payload)).then((cleanup) => {
-        unlisten = cleanup;
-      }),
-    );
+    void listen<MenuAction>('moondown-menu', (event) => handleMenuAction(event.payload)).then((cleanup) => {
+      unlisten = cleanup;
+    });
     return () => unlisten?.();
   }, [handleMenuAction]);
 
@@ -551,14 +551,9 @@ export default function App() {
     if (!isDesktopRuntime()) return;
     let unlisten: (() => void) | undefined;
 
-    void Promise.all([
-      import('@tauri-apps/api/core'),
-      import('@tauri-apps/api/event'),
-    ]).then(([{ invoke }, { listen }]) => {
-      void invoke<string[]>('opened_urls').then((urls) => openSystemFile(urls));
-      void listen<string[]>('moondown-opened', (event) => openSystemFile(event.payload)).then((cleanup) => {
-        unlisten = cleanup;
-      });
+    void invoke<string[]>('opened_urls').then((urls) => openSystemFile(urls));
+    void listen<string[]>('moondown-opened', (event) => openSystemFile(event.payload)).then((cleanup) => {
+      unlisten = cleanup;
     });
 
     return () => unlisten?.();

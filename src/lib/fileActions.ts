@@ -1,4 +1,5 @@
 import type { ExportFormat } from './exporters';
+import { invoke } from '@tauri-apps/api/core';
 
 export interface OpenedMarkdownFile {
   content: string;
@@ -217,7 +218,6 @@ export async function exportSettingsFile(content: string): Promise<string | null
 
 async function allowFsPath(path: string, recursive: boolean): Promise<void> {
   if (!isDesktopRuntime()) return;
-  const { invoke } = await import('@tauri-apps/api/core');
   await invoke('allow_fs_path', { path, recursive });
 }
 

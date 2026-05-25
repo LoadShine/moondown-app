@@ -1,7 +1,7 @@
 {
   "name": "moondown-app",
   "private": true,
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "description": "A refined cross-platform Markdown editor powered by Moondown and Tauri.",
   "scripts": {
