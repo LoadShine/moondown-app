@@ -193,6 +193,9 @@ if (capabilities && capabilities.includes('core:window:allow-set-fullscreen')) f
 if (workflow && !workflow.includes('tauri-apps/tauri-action')) failures.push('GitHub Actions must build Tauri artifacts.');
 if (workflow && workflow.includes('tauri-apps/tauri-action@v1')) failures.push('GitHub Actions must not use nonexistent tauri-action@v1.');
 if (workflow && !workflow.includes('tauri-apps/tauri-action@v0.6.2')) failures.push('GitHub Actions must pin a resolvable tauri-action version.');
+if (workflow && (workflow.includes('uploadWorkflowArtifacts') || workflow.includes('workflowArtifactNamePattern'))) {
+  failures.push('GitHub Actions must not pass unsupported tauri-action artifact inputs that create workflow warnings.');
+}
 if (workflow && workflow.includes('actions/checkout@v4')) failures.push('GitHub Actions must not use checkout@v4 because it runs on the deprecated Node 20 runtime.');
 if (workflow && !workflow.includes('actions/checkout@v6')) failures.push('GitHub Actions must use checkout@v6.');
 if (workflow && workflow.includes('actions/setup-node@v4')) failures.push('GitHub Actions must not use setup-node@v4 because it runs on the deprecated Node 20 runtime.');

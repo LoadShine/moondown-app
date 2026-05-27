@@ -82,15 +82,13 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build workflow artifacts
+      - name: Build desktop app
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: "moondown-[platform]-[arch]-[bundle]"
 
       - name: Build release artifacts
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
