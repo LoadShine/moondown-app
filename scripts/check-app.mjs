@@ -200,6 +200,9 @@ if (workflow && !workflow.includes('actions/setup-node@v6')) failures.push('GitH
 if (workflow && !workflow.includes('node-version: 24')) failures.push('GitHub Actions must run Node.js 24.');
 if (workflow && workflow.includes('pnpm/action-setup@v4')) failures.push('GitHub Actions must not use pnpm/action-setup@v4 because it runs on the deprecated Node 20 runtime.');
 if (workflow && !workflow.includes('pnpm/action-setup@v6')) failures.push('GitHub Actions must use pnpm/action-setup@v6.');
+if (workflow && !workflow.includes('FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true')) {
+  failures.push('GitHub Actions must force JavaScript actions onto Node.js 24 to avoid deprecated Node 20 action runtime warnings.');
+}
 if (lightLogo && !lightLogo.includes('app-icon-bg')) failures.push('Light logo must include a rounded-rectangle background.');
 if (darkLogo && !darkLogo.includes('app-icon-bg')) failures.push('Dark logo must include a rounded-rectangle background.');
 for (const dependency of ['markdown-it', 'docx', 'jszip']) {
