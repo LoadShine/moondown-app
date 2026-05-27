@@ -12,7 +12,7 @@ const readJson = (relativePath) => JSON.parse(readText(relativePath));
 
 const packageJson = readJson('package.json');
 const failures = [];
-const minimumMoondownVersion = [1, 0, 5];
+const minimumMoondownVersion = [1, 0, 6];
 
 const parseSemverRange = (range) => {
   const match = range?.match(/\d+\.\d+\.\d+/);
@@ -41,7 +41,7 @@ if (
   packageJson.dependencies?.moondown &&
   !isAtLeast(parseSemverRange(packageJson.dependencies.moondown), minimumMoondownVersion)
 ) {
-  failures.push('The app must depend on moondown 1.0.5 or newer.');
+  failures.push('The app must depend on moondown 1.0.6 or newer.');
 }
 if (!packageJson.dependencies?.['@tauri-apps/api']) failures.push('The app must depend on Tauri API.');
 if (!packageJson.scripts?.build?.includes('vite build')) failures.push('The app must have a Vite production build.');
@@ -91,6 +91,9 @@ if (appSource && !appSource.includes('findFirstMarkdownFile')) failures.push('St
 if (appSource && !appSource.includes('function SearchReplacePanel')) failures.push('App.tsx must provide a custom search/replace panel.');
 if (appSource && !appSource.includes('findExactMatches')) failures.push('Search must use simple exact-match scanning.');
 if (appSource && !appSource.includes('replaceCurrentMatch')) failures.push('Replace must support replacing the active exact match.');
+if (appSource && !appSource.includes("mode === 'replace' && searchQuery ? 'replace' : 'query'")) {
+  failures.push('Cmd+R must focus the replace input when a search query already exists.');
+}
 if (appSource && !appSource.includes('folder-tree')) failures.push('App.tsx must support a folder tree view.');
 if (appSource && !appSource.includes('moondown-menu')) failures.push('App.tsx must listen for native menu events.');
 if (appSource && !appSource.includes('exportCurrentDocument')) failures.push('App.tsx must support exporting the current document.');

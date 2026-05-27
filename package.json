@@ -1,7 +1,7 @@
 {
   "name": "moondown-app",
   "private": true,
-  "version": "0.1.10",
+  "version": "0.1.11",
   "type": "module",
   "description": "A refined cross-platform Markdown editor powered by Moondown and Tauri.",
   "scripts": {
@@ -19,7 +19,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^1.16.0",
     "markdown-it": "^14.1.1",
-    "moondown": "^1.0.5",
+    "moondown": "^1.0.6",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "tippy.js": "^6.3.7"

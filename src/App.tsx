@@ -434,11 +434,14 @@ export default function App() {
     setCommandBarOpen(false);
     setOpenCommandMenu(null);
     requestAnimationFrame(() => {
-      const field = document.querySelector<HTMLInputElement>('.search-replace-panel input[name="query"]');
+      const preferredFieldName = mode === 'replace' && searchQuery ? 'replace' : 'query';
+      const field =
+        document.querySelector<HTMLInputElement>(`.search-replace-panel input[name="${preferredFieldName}"]`) ??
+        document.querySelector<HTMLInputElement>('.search-replace-panel input[name="query"]');
       field?.focus();
       field?.select();
     });
-  }, []);
+  }, [searchQuery]);
 
   const moveSearchMatch = useCallback((direction: 1 | -1) => {
     if (searchMatches.length === 0) return;
