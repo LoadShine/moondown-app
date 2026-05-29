@@ -1,6 +1,6 @@
 [package]
 name = "moondown_app"
-version = "0.1.13"
+version = "0.1.14"
 description = "A refined cross-platform Markdown editor powered by Moondown."
 authors = ["LoadShine"]
 edition = "2024"
