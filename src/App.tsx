@@ -766,6 +766,7 @@ function CommandBar({
           label={labels.file}
           icon={FileText}
           activeMenu={activeMenu}
+          disabled={!open}
           onToggleMenu={onToggleMenu}
         >
           <CommandMenuItem icon={FilePlus} label={labels.new} onClick={() => onAction('new-document')} />
@@ -781,6 +782,7 @@ function CommandBar({
           label={labels.exportAs}
           icon={Download}
           activeMenu={activeMenu}
+          disabled={!open}
           onToggleMenu={onToggleMenu}
         >
           <CommandMenuItem icon={FileText} label={labels.exportMarkdown} onClick={() => onAction('export-markdown')} />
@@ -796,6 +798,8 @@ function CommandBar({
           label={labels.view}
           icon={PanelLeft}
           activeMenu={activeMenu}
+          align="end"
+          disabled={!open}
           onToggleMenu={onToggleMenu}
         >
           <CommandMenuItem icon={PanelLeft} label={labels.folderTree} onClick={() => onAction('toggle-tree')} />
@@ -806,7 +810,7 @@ function CommandBar({
           <CommandMenuItem icon={Moon} label={labels.dark} onClick={() => onAction('theme-dark')} selected={settings.themeMode === 'dark'} />
         </CommandMenuButton>
 
-        <button type="button" className="command-menu-trigger" onClick={() => onAction('settings')}>
+        <button type="button" className="command-menu-trigger" aria-label={labels.settings} disabled={!open} onClick={() => onAction('settings')}>
           <SettingsIcon size={15} />
           <span>{labels.settings}</span>
         </button>
@@ -820,6 +824,8 @@ function CommandMenuButton({
   label,
   icon: Icon,
   activeMenu,
+  align = 'start',
+  disabled = false,
   onToggleMenu,
   children,
 }: {
@@ -827,6 +833,8 @@ function CommandMenuButton({
   label: string;
   icon: LucideIcon;
   activeMenu: CommandMenuId | null;
+  align?: 'start' | 'end';
+  disabled?: boolean;
   onToggleMenu: (menu: CommandMenuId) => void;
   children: ReactNode;
 }) {
@@ -837,8 +845,10 @@ function CommandMenuButton({
       <button
         type="button"
         className={`command-menu-trigger ${isActive ? 'active' : ''}`}
+        aria-label={label}
         aria-haspopup="menu"
         aria-expanded={isActive}
+        disabled={disabled}
         onClick={() => onToggleMenu(id)}
       >
         <Icon size={15} />
@@ -846,7 +856,7 @@ function CommandMenuButton({
         <ChevronDown size={13} />
       </button>
       {isActive && (
-        <div className="command-menu" role="menu">
+        <div className={align === 'end' ? 'command-menu align-end' : 'command-menu'} role="menu">
           {children}
         </div>
       )}

@@ -1,7 +1,7 @@
 {
   "name": "moondown-app",
   "private": true,
-  "version": "0.1.11",
+  "version": "0.1.12",
   "type": "module",
   "description": "A refined cross-platform Markdown editor powered by Moondown and Tauri.",
   "scripts": {
@@ -9,7 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test:app": "node scripts/check-app.mjs"
+    "test:app": "node scripts/check-app.mjs && node scripts/check-app-ui.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
@@ -25,6 +25,7 @@
     "tippy.js": "^6.3.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tauri-apps/cli": "^2.11.1",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^25.6.0",

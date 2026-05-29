@@ -75,6 +75,24 @@ if (appSource && !appSource.includes('function CommandBar')) failures.push('App.
 if (appSource && !appSource.includes('commandBarOpen')) failures.push('App.tsx must hide/show the bottom command bar from state.');
 if (appSource && !appSource.includes('className="command-tray-toggle"')) failures.push('App.tsx must put the command bar toggle in the app top-right corner.');
 if (appSource && !appSource.includes('command-bar open')) failures.push('The command bar must render as a bottom tray that can be opened.');
+if (appSource && !/className=\{`command-menu-trigger [^`]+`\}[\s\S]{0,220}aria-label=\{label\}/.test(appSource)) {
+  failures.push('Responsive command menu buttons must keep accessible names when visual labels are hidden.');
+}
+if (appSource && !/className="command-menu-trigger"[\s\S]{0,180}aria-label=\{labels\.settings\}/.test(appSource)) {
+  failures.push('The responsive settings command button must keep an accessible name when its visual label is hidden.');
+}
+if (appSource && !appSource.includes('disabled={!open}')) {
+  failures.push('Hidden command bar buttons must be disabled so they cannot receive keyboard focus.');
+}
+if (stylesSource && !stylesSource.includes('.command-menu-trigger:disabled')) {
+  failures.push('styles.css must define disabled command trigger behavior.');
+}
+if (appSource && !/id="view"[\s\S]{0,180}align="end"/.test(appSource)) {
+  failures.push('The View command menu must align to the end so it does not overflow narrow screens.');
+}
+if (stylesSource && !stylesSource.includes('.command-menu.align-end')) {
+  failures.push('styles.css must support end-aligned command menus for narrow screens.');
+}
 if (appSource && appSource.includes('command-group--quick')) failures.push('The command bar must not keep old quick action buttons.');
 if (appSource && appSource.includes('CommandIconButton')) failures.push('The command bar must only keep File, Export as, View, and Settings controls.');
 if (appSource && appSource.includes('onOpenFile={() => void openFile()}')) failures.push('Settings must not be the primary place to open files.');

@@ -180,6 +180,10 @@ button {
   color: var(--ink);
 }
 
+.command-menu-trigger:disabled {
+  cursor: default;
+}
+
 :root[data-theme='dark'] .command-menu-trigger:hover,
 :root[data-theme='dark'] .command-menu-trigger.active {
   background: rgba(245, 242, 236, 0.1);
@@ -197,6 +201,11 @@ button {
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.14);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+}
+
+.command-menu.align-end {
+  right: 0;
+  left: auto;
 }
 
 .command-menu button {
