@@ -30,7 +30,9 @@ async function runAppUiChecks(url) {
 
     await assertHiddenCommandBarStaysOutOfTabOrder(page);
     await assertSearchReplaceWorkflow(page);
+    await assertSearchReplaceLiteralResponsiveWorkflow(page);
     await assertCmdWResetsDocumentWithoutClosingBrowserPage(page);
+    await assertCommandTrayToggleChaos(page);
     await assertMobileCommandMenusStayAccessibleAndInBounds(page);
 
     assert.deepEqual(errors, [], 'browser console/page errors should be empty');
@@ -103,6 +105,56 @@ async function assertSearchReplaceWorkflow(page) {
   assert.ok((afterAll.match(/omega/g) || []).length >= 3, 'Replace all should insert replacements');
 }
 
+async function assertSearchReplaceLiteralResponsiveWorkflow(page) {
+  await page.setViewportSize({ width: 360, height: 520 });
+  await page.goto(page.url(), { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(300);
+
+  const content = [
+    'a.b literal',
+    'axb should not match',
+    '$& token should stay literal',
+    '---',
+    'a.b after rule',
+    'tail',
+  ].join('\n');
+
+  await page.locator('.cm-content').click();
+  await page.keyboard.press(`${modifierKey()}+A`);
+  await page.keyboard.type(content);
+
+  await page.keyboard.press(`${modifierKey()}+R`);
+  await assertBoxInsideViewport(page, '.search-replace-panel', 'mobile replace panel');
+  await assertVisibleTextDoesNotOverflow(page, '.search-replace-panel button', 'mobile search/replace buttons');
+
+  await page.locator('.search-replace-panel input[name="query"]').fill('a.b');
+  await page.waitForTimeout(100);
+  assert.equal(await selectedText(page), 'a.b', 'exact search should select the literal dotted text');
+  assert.equal(await page.locator('.search-input-wrap span').first().textContent(), '1/2');
+
+  await page.getByLabel('Next').click();
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('.search-input-wrap span').first().textContent(), '2/2');
+
+  await page.locator('.search-replace-panel input[name="replace"]').fill('$&-done');
+  await page.locator('.search-actions .text-action').first().click();
+  await page.waitForTimeout(100);
+  const afterOne = await editorText(page);
+  assert.match(afterOne, /\$&-done after rule/, 'Replace should treat replacement text literally');
+  assert.match(afterOne, /axb should not match/, 'Exact search must not behave like a regexp');
+  assert.equal(await page.locator('.search-input-wrap span').first().textContent(), '1/1');
+
+  await page.locator('.search-actions .text-action').nth(1).click();
+  await page.waitForTimeout(100);
+  const afterAll = await editorText(page);
+  assert.match(afterAll, /\$&-done literal/, 'Replace all should use literal replacement text');
+  assert.equal((afterAll.match(/a\.b/g) || []).length, 0, 'Replace all should remove remaining exact matches');
+
+  await page.locator('.search-replace-panel input[name="query"]').press('Escape');
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('.search-replace-panel').count(), 0, 'Escape should close the search panel');
+}
+
 async function assertCmdWResetsDocumentWithoutClosingBrowserPage(page) {
   await page.locator('.cm-content').click();
   await page.keyboard.press(`${modifierKey()}+A`);
@@ -113,6 +165,37 @@ async function assertCmdWResetsDocumentWithoutClosingBrowserPage(page) {
   await page.waitForTimeout(150);
   assert.equal(page.isClosed(), false, 'Cmd+W should be handled by the app');
   assert.equal((await editorText(page)).trim(), '', 'Cmd+W should reset the document content for the next open');
+}
+
+async function assertCommandTrayToggleChaos(page) {
+  await page.setViewportSize({ width: 390, height: 640 });
+  await page.goto(page.url(), { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(300);
+
+  await assertBoxInsideViewport(page, '.command-tray-toggle', 'command tray toggle');
+
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    await page.locator('.command-tray-toggle').click();
+    await page.waitForTimeout(220);
+    assert.equal(await page.locator('.command-bar.open').count(), 1, 'command bar should open from the top-right toggle');
+    assert.equal(await page.locator('.command-tray-toggle').getAttribute('aria-expanded'), 'true');
+    await assertBoxInsideViewport(page, '.command-bar', 'open command bar');
+
+    await page.getByRole('button', { name: 'File', exact: true }).click();
+    await page.waitForTimeout(80);
+    await assertBoxInsideViewport(page, '.command-menu', 'chaos file menu');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(80);
+    assert.equal(await page.locator('.command-menu').count(), 0, 'Escape should close only the active command menu');
+    assert.equal(await page.locator('.command-bar.open').count(), 1, 'Escape should leave the tray itself open');
+
+    await page.locator('.command-tray-toggle').click();
+    await page.waitForTimeout(220);
+    assert.equal(await page.locator('.command-bar.open').count(), 0, 'second toggle click should hide the command bar');
+    assert.equal(await page.locator('.command-tray-toggle').getAttribute('aria-expanded'), 'false');
+  }
+
+  await assertHiddenCommandBarStaysOutOfTabOrder(page);
 }
 
 async function assertMobileCommandMenusStayAccessibleAndInBounds(page) {
@@ -154,6 +237,29 @@ async function assertBoxInsideViewport(page, selector, label) {
   assert.ok(box.y >= -0.5, `${label} should not overflow top`);
   assert.ok(box.right <= box.viewportWidth + 0.5, `${label} should not overflow right`);
   assert.ok(box.bottom <= box.viewportHeight + 0.5, `${label} should not overflow bottom`);
+}
+
+async function assertVisibleTextDoesNotOverflow(page, selector, label) {
+  const overflowing = await page.locator(selector).evaluateAll((elements) => {
+    return elements
+      .filter((element) => {
+        const styles = window.getComputedStyle(element);
+        return styles.display !== 'none' && styles.visibility !== 'hidden';
+      })
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          text: element.textContent?.trim() ?? '',
+          width: rect.width,
+          height: rect.height,
+          scrollWidth: element.scrollWidth,
+          scrollHeight: element.scrollHeight,
+        };
+      })
+      .filter((box) => box.width > 0 && box.height > 0 && (box.scrollWidth > box.width + 1 || box.scrollHeight > box.height + 1));
+  });
+
+  assert.deepEqual(overflowing, [], `${label} should not clip visible text`);
 }
 
 async function editorText(page) {
