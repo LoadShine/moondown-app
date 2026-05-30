@@ -31,6 +31,7 @@ async function runAppUiChecks(url) {
     await assertHiddenCommandBarStaysOutOfTabOrder(page);
     await assertSearchReplaceWorkflow(page);
     await assertSearchReplaceLiteralResponsiveWorkflow(page);
+    await assertMoondownTableInsertionFocusWorkflow(page);
     await assertCmdWResetsDocumentWithoutClosingBrowserPage(page);
     await assertCommandTrayToggleChaos(page);
     await assertMobileCommandMenusStayAccessibleAndInBounds(page);
@@ -153,6 +154,43 @@ async function assertSearchReplaceLiteralResponsiveWorkflow(page) {
   await page.locator('.search-replace-panel input[name="query"]').press('Escape');
   await page.waitForTimeout(100);
   assert.equal(await page.locator('.search-replace-panel').count(), 0, 'Escape should close the search panel');
+}
+
+async function assertMoondownTableInsertionFocusWorkflow(page) {
+  await page.setViewportSize({ width: 390, height: 640 });
+  await page.goto(page.url(), { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(300);
+
+  const content = [
+    '# Table focus',
+    '',
+    '| A | B | C |',
+    '| - | - | - |',
+    '| 1 | 2 | 3 |',
+    '| 4 | 5 | 6 |',
+    '',
+  ].join('\n');
+
+  await page.locator('.cm-content').click();
+  await page.keyboard.press(`${modifierKey()}+A`);
+  await page.keyboard.insertText(content);
+  await page.waitForTimeout(250);
+
+  await page.locator('.table-helper td').nth(4).click();
+  await page.locator('.table-helper-operate-button.left').click();
+  await page.waitForTimeout(120);
+  await assertBoxInsideViewport(page, '.table-action-popover', 'mobile table row action popover');
+
+  await page.locator('.table-action-popover .tippy-button[title="Insert row below"]').last().click();
+  await page.waitForTimeout(180);
+  const focusedCell = await page.locator('.table-helper td:focus').evaluate((cell) => ({
+    rowIndex: cell.parentElement?.rowIndex,
+    cellIndex: cell.cellIndex,
+  }));
+  assert.deepEqual(focusedCell, { rowIndex: 2, cellIndex: 1 }, 'inserted table row should receive focus in the same column');
+
+  await page.keyboard.type('new-cell');
+  assert.equal(await page.locator('.table-helper td:focus').textContent(), 'new-cell');
 }
 
 async function assertCmdWResetsDocumentWithoutClosingBrowserPage(page) {
